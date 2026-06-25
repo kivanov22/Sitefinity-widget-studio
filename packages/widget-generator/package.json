@@ -1,0 +1,17 @@
+{
+  "name": "@studio/widget-generator",
+  "version": "0.1.0",
+  "description": "Generates TypeScript/React files from a parsed WidgetSchema",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "private": true,
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
