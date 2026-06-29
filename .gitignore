@@ -11,10 +11,10 @@ out/
 build
 dist
 
-# env files
+# env files (keep .env.example tracked)
 .env
-.env*.local
-.env.production
+.env.*
+!.env.example
 
 # debug
 npm-debug.log*
@@ -31,3 +31,7 @@ next-env.d.ts
 # OS
 .DS_Store
 Thumbs.db
+
+# local development only
+references/
+examples/
