@@ -10,9 +10,7 @@ const nextConfig: NextConfig = {
     "@studio/widget-registry",
     "@studio/shared",
   ],
-  experimental: {
-    typedRoutes: true,
-  },
+  typedRoutes: true,
 };
 
 export default nextConfig;

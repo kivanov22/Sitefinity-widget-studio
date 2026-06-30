@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Widget property types
+// Property types
 // ---------------------------------------------------------------------------
 
 export type PropertyType =
@@ -8,69 +8,143 @@ export type PropertyType =
   | "boolean"
   | "string[]"
   | "number[]"
+  | "object"      // nested model (e.g. ImageViewModel)
   | "unknown";
+
+export type RenderHint =
+  | "text"               // plain string
+  | "html"               // dangerouslySetInnerHTML (Html.Raw in Razor)
+  | "image"              // nested image object (url + alt + title)
+  | "video"              // nested video object (url + thumbnailUrl)
+  | "css-class"          // CSS class override prop
+  | "url"                // href / src
+  | "none";              // boolean flag, no direct render
+
+// ---------------------------------------------------------------------------
+// Nested object shape detected from Razor view
+// ---------------------------------------------------------------------------
+
+export interface NestedObjectShape {
+  /** TypeScript interface name, e.g. "HeroImage" */
+  interfaceName: string;
+  fields: {
+    name: string;
+    type: PropertyType;
+    isNullable: boolean;
+  }[];
+}
+
+// ---------------------------------------------------------------------------
+// Single widget property
+// ---------------------------------------------------------------------------
 
 export interface WidgetProperty {
   name: string;
-  /** camelCase version for TypeScript/React */
   camelName: string;
   type: PropertyType;
-  /** from [DisplayName] attribute */
+  renderHint: RenderHint;
+
+  // From C# attributes
   displayName?: string;
-  /** from [Description] attribute */
   description?: string;
-  /** from [DefaultValue] attribute */
   defaultValue?: string | number | boolean | null;
-  /** from [ContentSection] attribute */
   section?: string;
   isRequired?: boolean;
   isNullable?: boolean;
+
+  // Set when type === "object"
+  nestedShape?: NestedObjectShape;
 }
 
 // ---------------------------------------------------------------------------
-// Parsed widget schema (output of parser-csharp)
+// Parser source type
+// ---------------------------------------------------------------------------
+
+export type SourceType = "viewmodel" | "cshtml" | "both";
+
+// ---------------------------------------------------------------------------
+// Razor-specific metadata extracted from the view
+// ---------------------------------------------------------------------------
+
+export interface RazorMetadata {
+  modelClass: string;           // from @model HeroViewModel
+  partialViews: string[];       // from Html.PartialAsync("...")
+  animationLibraries: string[]; // "aos", "gsap" etc detected
+  cssClasses: string[];         // root BEM classes detected
+  hasVideo: boolean;
+  hasImage: boolean;
+  hasHtmlRawProps: string[];    // prop names rendered with Html.Raw
+  conditionalProps: string[];   // props used in @if checks
+}
+
+// ---------------------------------------------------------------------------
+// Parsed widget schema
 // ---------------------------------------------------------------------------
 
 export interface WidgetSchema {
-  /** PascalCase class name, e.g. "HeroWidgetModel" */
   className: string;
-  /** Derived widget name, e.g. "HeroWidget" */
   widgetName: string;
   properties: WidgetProperty[];
-  /** Namespace from C# file */
   namespace?: string;
-  /** Raw C# source passed in */
   rawSource: string;
+  sourceType: SourceType;
+  razorMetadata?: RazorMetadata;
 }
 
 // ---------------------------------------------------------------------------
-// Generated output (output of widget-generator)
+// Generated output
 // ---------------------------------------------------------------------------
 
 export interface GeneratedWidget {
-  /** e.g. HeroWidget.types.ts */
+  /** @deprecated v0.2 flat format — use entityFile for SDK-compatible output */
   typesFile: {
     filename: string;
     content: string;
   };
-  /** e.g. HeroWidget.metadata.ts */
+  /** @deprecated v0.2 flat format — use entityFile for SDK-compatible output */
   metadataFile: {
     filename: string;
     content: string;
   };
-  /** e.g. HeroWidget.tsx */
   componentFile: {
     filename: string;
     content: string;
   };
+  // v0.3 — SDK-compatible outputs (@progress/sitefinity-widget-designers-sdk pattern)
+  entityFile: {
+    filename: string;
+    content: string;
+  };
+  /** Paste into your widget-registry.ts inside the widgets: {} object */
+  registryEntrySnippet: string;
 }
 
 // ---------------------------------------------------------------------------
-// API contract
+// Saved widget (Supabase row shape)
+// ---------------------------------------------------------------------------
+
+export interface SavedWidget {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  name: string;
+  source_type: SourceType;
+  raw_source: string;
+  schema: WidgetSchema;
+  generated: GeneratedWidget;
+  tags: string[];
+  is_public: boolean;
+  version: number;
+}
+
+// ---------------------------------------------------------------------------
+// API contracts
 // ---------------------------------------------------------------------------
 
 export interface ConvertRequest {
-  csharpSource: string;
+  csharpSource?: string;
+  razorSource?: string;
+  sourceType: SourceType;
 }
 
 export interface ConvertResult {
@@ -81,4 +155,9 @@ export interface ConvertResult {
 export interface ConvertErrorResponse {
   error: string;
   details?: string;
+}
+
+export interface SaveWidgetRequest {
+  result: ConvertResult;
+  tags?: string[];
 }

@@ -7,18 +7,18 @@ import {
   Copy,
   Download,
   FileCode2,
-  FileType,
   Layers,
+  Package,
 } from "lucide-react";
 
 interface Props {
   result: ConvertResult | null;
 }
 
-type Tab = "component" | "types" | "metadata" | "schema";
+type Tab = "entity" | "component" | "registry" | "schema";
 
 export function GeneratedOutput({ result }: Props) {
-  const [activeTab, setActiveTab] = useState<Tab>("component");
+  const [activeTab, setActiveTab] = useState<Tab>("entity");
   const [copied, setCopied] = useState(false);
 
   if (!result) {
@@ -29,7 +29,7 @@ export function GeneratedOutput({ result }: Props) {
         </div>
         <p className="text-sm font-medium">Generated files will appear here</p>
         <p className="text-xs text-muted-foreground max-w-xs">
-          Paste a C# model on the left and click &ldquo;Convert to Next.js&rdquo; to see the TypeScript output.
+          Paste a C# model on the left and click &ldquo;Convert to Next.js&rdquo; to see the SDK-compatible output.
         </p>
       </div>
     );
@@ -39,19 +39,19 @@ export function GeneratedOutput({ result }: Props) {
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     {
+      id: "entity",
+      label: generated.entityFile.filename,
+      icon: <FileCode2 className="w-3.5 h-3.5" />,
+    },
+    {
       id: "component",
       label: generated.componentFile.filename,
       icon: <Layers className="w-3.5 h-3.5" />,
     },
     {
-      id: "types",
-      label: generated.typesFile.filename,
-      icon: <FileType className="w-3.5 h-3.5" />,
-    },
-    {
-      id: "metadata",
-      label: generated.metadataFile.filename,
-      icon: <FileCode2 className="w-3.5 h-3.5" />,
+      id: "registry",
+      label: "Registry Entry",
+      icon: <Package className="w-3.5 h-3.5" />,
     },
     {
       id: "schema",
@@ -60,25 +60,21 @@ export function GeneratedOutput({ result }: Props) {
     },
   ];
 
-  const activeContent = {
+  const activeContent: Record<Tab, string> = {
+    entity: generated.entityFile.content,
     component: generated.componentFile.content,
-    types: generated.typesFile.content,
-    metadata: generated.metadataFile.content,
+    registry: generated.registryEntrySnippet,
     schema: JSON.stringify(schema, null, 2),
-  }[activeTab];
+  };
 
   async function copyToClipboard() {
-    await navigator.clipboard.writeText(activeContent);
+    await navigator.clipboard.writeText(activeContent[activeTab]);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
 
   function downloadAll() {
-    const files = [
-      generated.componentFile,
-      generated.typesFile,
-      generated.metadataFile,
-    ];
+    const files = [generated.entityFile, generated.componentFile];
     for (const file of files) {
       const blob = new Blob([file.content], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
@@ -119,7 +115,7 @@ export function GeneratedOutput({ result }: Props) {
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity"
             >
               <Download className="w-3.5 h-3.5" />
-              Download all
+              Download (.entity.ts + .tsx)
             </button>
           </div>
         </div>
@@ -145,8 +141,16 @@ export function GeneratedOutput({ result }: Props) {
 
       {/* Code */}
       <div className="flex-1 overflow-auto p-6">
+        {activeTab === "registry" && (
+          <p className="text-xs text-muted-foreground mb-3">
+            Paste the imports at the top of your{" "}
+            <code className="bg-muted px-1 rounded">widget-registry.ts</code>,
+            then add the entry inside the{" "}
+            <code className="bg-muted px-1 rounded">widgets: {"{}"}</code> object.
+          </p>
+        )}
         <pre className="font-mono text-xs leading-relaxed text-foreground whitespace-pre">
-          {activeContent}
+          {activeContent[activeTab]}
         </pre>
       </div>
 
@@ -163,6 +167,11 @@ export function GeneratedOutput({ result }: Props) {
             >
               <span className="text-muted-foreground font-mono">{p.type}</span>
               <span className="font-medium">{p.camelName}</span>
+              {p.renderHint !== "text" && p.renderHint !== "none" && (
+                <span className="text-blue-500 opacity-70 font-mono">
+                  {p.renderHint}
+                </span>
+              )}
               {p.section && (
                 <span className="text-muted-foreground opacity-60">
                   · {p.section}

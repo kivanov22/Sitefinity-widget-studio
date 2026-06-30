@@ -102,3 +102,55 @@ namespace SitefinityProject.Widgets.CardGrid
         public string ContentTypeName { get; set; }
     }
 }`;
+
+export const HERO_RAZOR_SAMPLE = `@using WebApp.Entities.Hero
+@using WebApp.ViewModels.Hero
+@using WebApp.Entities.PartialImage
+@using WebApp.ViewModels.PartialImage
+@using WebApp.Helpers
+@model HeroViewModel
+@{
+    var imageSrc = Model.Image?.Url ?? string.Empty;
+    var imageTitle = Model.Image?.Title ?? string.Empty;
+    var imageAlt = !string.IsNullOrEmpty(Model.Image?.AlternativeText) ? Model.Image.AlternativeText : imageTitle;
+    var mobileImageSrc = Model.MobileImage?.Url != null ? Model.MobileImage.Url : imageSrc;
+    var videoSrc = Model.Video?.Url != null ? Model.Video.Url : string.Empty;
+    var classVideo = !string.IsNullOrEmpty(videoSrc) ? "trig-fade-up trig-down enable-trig" : string.Empty;
+}
+<section class="hero-home @Model.WrapperCssClass">
+    <div class="hero-home__media">
+        @if (!string.IsNullOrEmpty(videoSrc))
+        {
+            <div class="hero-home__media-el">
+                <div class="desktop">
+                    <video playsinline webkit-playsinline autoplay muted loop>
+                        <source src="@videoSrc" type="video/mp4" />
+                    </video>
+                </div>
+                <div class="mobile">
+                    <video playsinline webkit-playsinline autoplay muted loop>
+                        <source src="@videoSrc" type="video/mp4" />
+                    </video>
+                </div>
+            </div>
+        }
+        else if (!string.IsNullOrEmpty(imageSrc))
+        {
+            @await Html.PartialAsync("~/Views/Shared/_PartialImage.cshtml", cardImageView)
+        }
+    </div>
+    <div class="hero-home__content @classVideo">
+        @if (!string.IsNullOrEmpty(Model.Title))
+        {
+            <div class="hero-home__title" data-aos="fade-up">
+                <h1 class="title">@Html.Raw(Model.Title)</h1>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(Model.Description))
+        {
+            <div class="text" data-aos="fade-up">
+                @Html.HtmlSanitize(Html.Raw(Model.Description).ToString())
+            </div>
+        }
+    </div>
+</section>`;

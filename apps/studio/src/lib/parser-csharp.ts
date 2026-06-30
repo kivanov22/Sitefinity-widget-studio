@@ -1,16 +1,17 @@
 /**
- * parser-csharp (v0.1)
+ * parser-csharp (v0.2)
  *
  * A pure TypeScript parser that uses regex + heuristics to extract
  * property definitions and attributes from Sitefinity .NET Core
- * widget model classes.
+ * widget model/viewmodel classes.
  *
  * Roadmap:
- *   v0.1  — Regex-based (current) — handles 95% of real widget models
- *   v0.2  — Roslyn-powered via .NET WASM or API sidecar for 100% accuracy
+ *   v0.1  — Regex-based, basic types + attributes ✓
+ *   v0.2  — Nested object detection, render hints, enum stubs (current)
+ *   v0.3  — Roslyn-powered via .NET WASM sidecar for 100% accuracy
  */
 
-import type { WidgetProperty, WidgetSchema, PropertyType } from "@/types/widget";
+import type { WidgetProperty, WidgetSchema, PropertyType, RenderHint } from "@/types/widget";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +22,7 @@ function toCamelCase(name: string): string {
 }
 
 function parseTypeName(csType: string): PropertyType {
-  const t = csType.replace(/\?$/, "").trim(); // strip nullable marker
+  const t = csType.replace(/\?$/, "").trim();
   const lower = t.toLowerCase();
 
   if (lower === "string") return "string";
@@ -30,13 +31,30 @@ function parseTypeName(csType: string): PropertyType {
   if (lower === "bool") return "boolean";
   if (lower === "list<string>" || lower === "ienumerable<string>" || lower === "string[]")
     return "string[]";
-  if (
-    lower === "list<int>" ||
-    lower === "ienumerable<int>" ||
-    lower === "int[]"
-  )
+  if (lower === "list<int>" || lower === "ienumerable<int>" || lower === "int[]")
     return "number[]";
+  // Known complex types → object
+  if (/viewmodel|model|image|video|file|document|media/i.test(lower))
+    return "object";
   return "unknown";
+}
+
+function inferRenderHint(propName: string, type: PropertyType): RenderHint {
+  const n = propName.toLowerCase();
+  if (type === "boolean") return "none";
+  if (type === "object") {
+    if (n.includes("image") || n.includes("photo") || n.includes("banner") || n.includes("thumbnail"))
+      return "image";
+    if (n.includes("video")) return "video";
+    return "text";
+  }
+  if (n.includes("cssclass") || n.includes("wrapperclass") || n.includes("classname"))
+    return "css-class";
+  if (n.includes("url") || n.includes("href") || n.includes("link") || n.includes("src"))
+    return "url";
+  if (n.includes("html") || n.includes("content") || n.includes("body") || n.includes("description"))
+    return "html";
+  return "text";
 }
 
 function isNullable(csType: string): boolean {
@@ -145,11 +163,14 @@ function extractProperties(classBody: string): WidgetProperty[] {
       const propName = propMatch[2];
 
       const attrs = extractAttributes(attributeLines.join("\n"));
+      const type = parseTypeName(csType);
+      const renderHint = inferRenderHint(propName, type);
 
       properties.push({
         name: propName,
         camelName: toCamelCase(propName),
-        type: parseTypeName(csType),
+        type,
+        renderHint,
         isNullable: isNullable(csType),
         ...attrs,
       });
@@ -188,5 +209,6 @@ export function parseWidget(csharpSource: string): WidgetSchema {
     namespace,
     properties,
     rawSource: csharpSource,
+    sourceType: "viewmodel" as const,
   };
 }

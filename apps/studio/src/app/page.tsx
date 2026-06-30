@@ -20,6 +20,9 @@ export default function HomePage() {
             <Link href="/convert" className="hover:text-foreground transition-colors">
               Convert
             </Link>
+            <Link href="/marketplace" className="hover:text-foreground transition-colors">
+              Marketplace
+            </Link>
             <Link href="/preview" className="hover:text-foreground transition-colors">
               Preview
             </Link>
