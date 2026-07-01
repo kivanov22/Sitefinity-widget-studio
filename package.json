@@ -15,5 +15,8 @@
   "engines": {
     "node": ">=20.0.0",
     "npm": ">=10.0.0"
+  },
+  "dependencies": {
+    "isomorphic-dompurify": "^2.26.0"
   }
 }
