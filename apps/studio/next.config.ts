@@ -2,15 +2,6 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  experimental: {
-    proxyTimeout: 60000,
-  },
-  skipTrailingSlashRedirect: true,
-  turbopack: {
-    resolveAlias: {
-      "@widgetregistry": "./src/app/widget-registry.ts",
-    },
-  },
   transpilePackages: [
     "@studio/parser-csharp",
     "@studio/metadata-engine",
