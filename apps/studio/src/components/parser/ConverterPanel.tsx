@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { type ConvertResult, type ConvertErrorResponse, type SourceType } from "@/types/widget";
-import { HERO_WIDGET_SAMPLE, HERO_RAZOR_SAMPLE, FAQ_WIDGET_SAMPLE, CARD_GRID_WIDGET_SAMPLE } from "@/lib/samples";
+import { HERO_WIDGET_SAMPLE, HERO_RAZOR_SAMPLE, FAQ_WIDGET_SAMPLE, CARD_GRID_WIDGET_SAMPLE, MVC_AUTHOR_WIDGET_SAMPLE, MVC_CUSTOM_IMAGE_SAMPLE, MVC_SIMPLE_CONTENT_BLOCK_SAMPLE, MVC_LIST_WIDGET_SAMPLE } from "@/lib/samples";
 import { AlertCircle, ChevronDown, ChevronUp, Loader2, Save, Wand2 } from "lucide-react";
 
 interface Props {
@@ -52,6 +52,12 @@ const SAMPLES: Record<SourceType, { label: string; value: string }[]> = {
     { label: "Card Grid Widget", value: CARD_GRID_WIDGET_SAMPLE },
   ],
   cshtml: [{ label: "Hero Razor View", value: HERO_RAZOR_SAMPLE }],
+  mvc: [
+    { label: "Author Widget (TypeConverter + image pair)", value: MVC_AUTHOR_WIDGET_SAMPLE },
+    { label: "Custom Image Widget (Guid pair)", value: MVC_CUSTOM_IMAGE_SAMPLE },
+    { label: "Simple Content Block (no Model)", value: MVC_SIMPLE_CONTENT_BLOCK_SAMPLE },
+    { label: "List Widget (enum + JSON array)", value: MVC_LIST_WIDGET_SAMPLE },
+  ],
   both: [],
 };
 
@@ -95,6 +101,8 @@ export function ConverterPanel({ onResult }: Props) {
   const placeholder =
     sourceType === "cshtml"
       ? `@model HeroViewModel\n\n<section class="hero">\n  @if (!string.IsNullOrEmpty(Model.Title))\n  {\n    <h1>@Html.Raw(Model.Title)</h1>\n  }\n</section>`
+      : sourceType === "mvc"
+      ? `// Paste controller + model classes together\n[ControllerToolboxItem(Name = "Author", Title = "Author", SectionName = "Feather samples")]\npublic class AuthorController : Controller\n{\n    [TypeConverter(typeof(ExpandableObjectConverter))]\n    public AuthorModel Model { get; ... }\n}\n\npublic class AuthorModel\n{\n    public string Name { get; set; }\n    // ...\n}`
       : `public class HeroWidgetModel\n{\n    public string Title { get; set; }\n    // ...\n}`;
 
   return (
@@ -109,7 +117,7 @@ export function ConverterPanel({ onResult }: Props) {
 
       {/* Source type tabs */}
       <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
-        {(["viewmodel", "cshtml"] as SourceType[]).map((tab) => (
+        {(["viewmodel", "cshtml", "mvc"] as SourceType[]).map((tab) => (
           <button
             key={tab}
             onClick={() => handleTabChange(tab)}
@@ -119,7 +127,7 @@ export function ConverterPanel({ onResult }: Props) {
                 : "bg-background text-muted-foreground hover:text-foreground hover:bg-muted"
             }`}
           >
-            {tab === "viewmodel" ? "ViewModel (.cs)" : "Razor View (.cshtml)"}
+            {tab === "viewmodel" ? "ViewModel (.cs)" : tab === "cshtml" ? "Razor View (.cshtml)" : "MVC Widget"}
           </button>
         ))}
       </div>
@@ -129,6 +137,8 @@ export function ConverterPanel({ onResult }: Props) {
         <p className="text-xs text-muted-foreground">
           {sourceType === "cshtml"
             ? "Paste the .cshtml view — @model directive required"
+            : sourceType === "mvc"
+            ? "Paste controller + model classes as one block"
             : "Paste the C# ViewModel or Model class"}
         </p>
         <button
@@ -232,6 +242,12 @@ export function ConverterPanel({ onResult }: Props) {
           <>
             <p>Attributes: <code className="bg-muted px-1 rounded">[DisplayName]</code> <code className="bg-muted px-1 rounded">[ContentSection]</code> <code className="bg-muted px-1 rounded">[DefaultValue]</code></p>
             <p>Types: <code className="bg-muted px-1 rounded">string</code> <code className="bg-muted px-1 rounded">bool</code> <code className="bg-muted px-1 rounded">int</code> <code className="bg-muted px-1 rounded">ImageViewModel</code></p>
+          </>
+        ) : sourceType === "mvc" ? (
+          <>
+            <p>Detects: <code className="bg-muted px-1 rounded">[TypeConverter(ExpandableObjectConverter)]</code> → parses nested Model class</p>
+            <p>Collapses: <code className="bg-muted px-1 rounded">Guid ImageId + string ImageProviderName</code> → MixedContentContext image</p>
+            <p>Detects: <code className="bg-muted px-1 rounded">[DynamicLinksContainer]</code>, enums, JSON-array strings</p>
           </>
         ) : (
           <>

@@ -103,6 +103,180 @@ namespace SitefinityProject.Widgets.CardGrid
     }
 }`;
 
+// ---------------------------------------------------------------------------
+// MVC Widget samples (Legacy Sitefinity MVC, System.Web.Mvc)
+// Paste controller + model as a single block — the parser handles both classes.
+// ---------------------------------------------------------------------------
+
+export const MVC_AUTHOR_WIDGET_SAMPLE = `// AuthorController.cs
+using System;
+using System.ComponentModel;
+using System.Web.Mvc;
+using AuthorWidget.MVC.Models.Author;
+using Telerik.Sitefinity.Mvc;
+
+namespace AuthorWidget.MVC.Controllers
+{
+    [ControllerToolboxItem(Name = "Author", Title = "Author", SectionName = "Feather samples")]
+    public class AuthorController : Controller
+    {
+        [TypeConverter(typeof(ExpandableObjectConverter))]
+        public AuthorModel Model
+        {
+            get
+            {
+                if (this.model == null)
+                    this.model = new AuthorModel();
+                return this.model;
+            }
+        }
+
+        public string Template
+        {
+            get { return this.template; }
+            set { this.template = value; }
+        }
+
+        public ActionResult Index()
+        {
+            return this.View("Author." + this.Template, this.Model.GetViewModel());
+        }
+
+        private AuthorModel model;
+        private string template = "Default";
+    }
+}
+
+// AuthorModel.cs
+namespace AuthorWidget.MVC.Models.Author
+{
+    public class AuthorModel
+    {
+        public Guid PageId { get; set; }
+
+        public string AmazonUrl { get; set; }
+
+        public string ImageProviderName { get; set; }
+
+        public Guid ImageId { get; set; }
+
+        [DynamicLinksContainer]
+        public string Description { get; set; }
+
+        public string Name { get; set; }
+
+        public string CssClass { get; set; }
+    }
+}`;
+
+export const MVC_CUSTOM_IMAGE_SAMPLE = `// CustomImageController.cs
+using System.ComponentModel;
+using System.Web.Mvc;
+using CustomImageWidget.Mvc.Models;
+using Telerik.Sitefinity.Mvc;
+
+namespace CustomImageWidget.Mvc.Controllers
+{
+    [ControllerToolboxItem(Name = "CustomImage_MVC", Title = "Custom Image", SectionName = "Feather samples", ModuleName = "Libraries")]
+    public class CustomImageController : Controller
+    {
+        [TypeConverter(typeof(ExpandableObjectConverter))]
+        public virtual CustomImageModel Model
+        {
+            get
+            {
+                if (this.model == null)
+                    this.model = new CustomImageModel();
+                return this.model;
+            }
+        }
+
+        public ActionResult Index()
+        {
+            return View("Default", this.Model.GetViewModel());
+        }
+
+        private CustomImageModel model;
+    }
+}
+
+// CustomImageModel.cs
+namespace CustomImageWidget.Mvc.Models
+{
+    public class CustomImageModel
+    {
+        public Guid ImageId { get; set; }
+
+        public string ImageProviderName { get; set; }
+    }
+}`;
+
+export const MVC_SIMPLE_CONTENT_BLOCK_SAMPLE = `// SimpleContentBlockController.cs — fallback pattern: no TypeConverter, props on controller
+using System.Web.Mvc;
+using Telerik.Sitefinity.Mvc;
+
+namespace SimpleContentBlock.Mvc.Controllers
+{
+    [ControllerToolboxItem(Name = "SimpleContentBlock", Title = "Simple Content Block", SectionName = "Feather samples")]
+    public class SimpleContentBlockController : Controller
+    {
+        public string Text { get; set; }
+
+        public ActionResult Index()
+        {
+            return this.Content(this.Text);
+        }
+    }
+}`;
+
+export const MVC_LIST_WIDGET_SAMPLE = `// ListMode.cs — enum definition (paste together with controller)
+namespace ListWidget
+{
+    public enum ListMode
+    {
+        Numbers,
+        Bullets
+    }
+}
+
+// ListController.cs — fallback pattern: props directly on controller
+using System.Collections.Generic;
+using System.Web.Mvc;
+using Telerik.Sitefinity.Mvc;
+
+namespace ListWidget.Mvc.Controllers
+{
+    [ControllerToolboxItem(Name = "SampleList", SectionName = "Feather samples", Title = "Sample List")]
+    public class ListController : Controller
+    {
+        public string ListTitle
+        {
+            get { return this.listTitle; }
+            set { this.listTitle = value; }
+        }
+
+        public ListMode ListType
+        {
+            get;
+            set;
+        }
+
+        public string ListItems
+        {
+            get { return this.listItems; }
+            set { this.listItems = value; }
+        }
+
+        public ActionResult Index()
+        {
+            return this.View();
+        }
+
+        private string listTitle = "My list title";
+        private string listItems = "[\"First Item\", \"Second Item\", \"Third Item\"]";
+    }
+}`;
+
 export const HERO_RAZOR_SAMPLE = `@using WebApp.Entities.Hero
 @using WebApp.ViewModels.Hero
 @using WebApp.Entities.PartialImage

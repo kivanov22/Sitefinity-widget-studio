@@ -27,13 +27,20 @@
 import type { WidgetSchema } from "@/types/widget";
 
 function toKebabCase(str: string): string {
-  return str.replace(/([A-Z])/g, (char, _, offset) =>
-    offset === 0 ? char.toLowerCase() : "-" + char.toLowerCase()
-  );
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
 }
 
 export function generateRegistryEntry(schema: WidgetSchema): string {
   const { widgetName } = schema;
+  // Registry key must be the original Sitefinity toolbox Name so existing pages
+  // that reference the widget by that name continue to resolve it.
+  // widgetKey is only set when it differs from widgetName (MVC source with
+  // non-identifier chars like underscores). Renderer/ViewModel sources derive
+  // widgetName directly from the class name so no mismatch is possible.
+  const registryKey = schema.widgetKey ?? widgetName;
   const entityClassName = `${widgetName}Entity`;
   const kebabName = toKebabCase(widgetName);
 
@@ -43,7 +50,7 @@ export function generateRegistryEntry(schema: WidgetSchema): string {
   ].join("\n");
 
   const registryEntry = [
-    `    '${widgetName}': {`,
+    `    '${registryKey}': {`,
     `        componentType: ${widgetName},`,
     `        entity: ${entityClassName},`,
     `        ssr: true`,

@@ -21,9 +21,10 @@ import type { WidgetSchema, WidgetProperty } from "@/types/widget";
 // ---------------------------------------------------------------------------
 
 function toKebabCase(str: string): string {
-  return str.replace(/([A-Z])/g, (char, _, offset) =>
-    offset === 0 ? char.toLowerCase() : "-" + char.toLowerCase()
-  );
+  return str
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+    .toLowerCase();
 }
 
 /** Mirror the entity generator's name-stripping for image props. */
@@ -181,6 +182,21 @@ function buildJsxBody(properties: WidgetProperty[]): string {
     } else if (prop.type === "number") {
       lines.push(
         `        <span>{props.model.Properties.${prop.name}}</span>`
+      );
+    } else if (prop.renderHint === "choice") {
+      lines.push(
+        `        {/* ${prop.name}: ${prop.enumTypeName ?? "enum"} — use to drive conditional rendering */}`,
+        `        {/* e.g. props.model.Properties.${prop.name} === ${prop.enumTypeName ?? "EnumType"}.SomeValue && <... /> */}`
+      );
+    } else if (prop.type === "string[]") {
+      lines.push(
+        `        {props.model.Properties.${prop.name} && (`,
+        `          <ul>`,
+        `            {props.model.Properties.${prop.name}.map((item, i) => (`,
+        `              <li key={i}>{item}</li>`,
+        `            ))}`,
+        `          </ul>`,
+        `        )}`
       );
     }
   }
