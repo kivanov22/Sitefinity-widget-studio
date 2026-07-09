@@ -35,3 +35,5 @@ Thumbs.db
 # local development only
 references/
 examples/
+
+certificates/
