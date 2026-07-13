@@ -9,9 +9,14 @@
  *   2. `{...dataAttributes}` spread on the root element — required for page editor
  *   3. Props accessed as `props.model.Properties.PropName` (not flat)
  *   4. Named export (not default): `export function WidgetName(...)`
+ *      — the widget-registry imports the component by name (`{ WidgetName }`),
+ *        so a default export would break registration. When an image property is
+ *        present the component becomes `export async function WidgetName(...)`,
+ *        still a NAMED export (matches sitefinity-data.tsx which is
+ *        `export async function SitefinityData(...)`).
  *
  * Reference: nextjs-samples/src/hello-world/.../hello-world.tsx
- *            nextjs-samples/src/sitefinity-data/.../sitefinity-data.tsx
+ *            nextjs-samples/src/sitefinity-data/.../sitefinity-data.tsx (async fetch)
  */
 
 import type { WidgetSchema, WidgetProperty } from "@/types/widget";
@@ -32,20 +37,87 @@ function imagePropertyName(name: string): string {
   return name.replace(/Url$/i, "");
 }
 
+/** camelCase the entity property name for a local variable. */
+function toCamelCase(name: string): string {
+  return name.charAt(0).toLowerCase() + name.slice(1);
+}
+
 function find(props: WidgetProperty[], pattern: RegExp): WidgetProperty | undefined {
   return props.find((p) => pattern.test(p.name));
+}
+
+// ---------------------------------------------------------------------------
+// Image bindings — MixedContentContext content selectors resolved via REST
+// ---------------------------------------------------------------------------
+
+interface ImageBinding {
+  /** The property name on the WidgetProperty (may still carry a Url suffix). */
+  originalName: string;
+  /** The name the entity actually emits (Url suffix stripped, e.g. BackgroundImage). */
+  emittedName: string;
+  /** The local const the fetch result is assigned to (e.g. backgroundImage). */
+  varName: string;
+}
+
+function imageBindings(properties: WidgetProperty[]): ImageBinding[] {
+  return properties
+    .filter((p) => p.renderHint === "image")
+    .map((p) => {
+      const emittedName = imagePropertyName(p.name);
+      return {
+        originalName: p.name,
+        emittedName,
+        varName: toCamelCase(emittedName),
+      };
+    });
+}
+
+/**
+ * Server-side fetch for each image property. A `renderHint === "image"` property
+ * is a `MixedContentContext | null` selector (see the entity generator + CLAUDE.md
+ * image rule) — the selected library items live in `ItemIdsOrdered`, and are
+ * resolved with `RestClient.getItems` filtered by Id.
+ *
+ * NOTE: the real `GetAllArgs` signature has NO `ids` field — it takes a `filter`.
+ * This matches how the corianderLane demo's `getDetailedItem` resolves related
+ * items (Or-combined `Id eq` clauses), verified against the installed SDK types.
+ */
+function buildImageFetches(images: ImageBinding[]): string {
+  return images
+    .map(
+      (img) => `
+    // Fetch image server-side — edit RestClient options as needed
+    const ${img.varName}Items = props.model.Properties.${img.emittedName}
+        ? await RestClient.getItems<SdkItem>({
+            type: RestSdkTypes.Image,
+            provider: undefined,
+            filter: {
+                Operator: 'OR',
+                ChildFilters: (props.model.Properties.${img.emittedName}.ItemIdsOrdered ?? []).map((id: string) => ({
+                    FieldName: 'Id',
+                    FieldValue: id,
+                    Operator: 'eq',
+                })),
+            },
+          })
+        : null;
+    const ${img.varName} = ${img.varName}Items?.Items?.[0];`
+    )
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
 // JSX body — driven by renderHint, using props.model.Properties.X
 // ---------------------------------------------------------------------------
 
-function buildJsxBody(properties: WidgetProperty[]): string {
+function buildJsxBody(
+  properties: WidgetProperty[],
+  images: ImageBinding[]
+): string {
   const lines: string[] = [];
   const handled = new Set<string>();
 
   const cssProp = properties.find((p) => p.renderHint === "css-class");
-  const imageProp = properties.find((p) => p.renderHint === "image");
   const videoProp = properties.find((p) => p.renderHint === "video");
   const titleProp = find(properties, /^(Title|Heading|Headline)$/i);
   const subtitleProp = find(properties, /^(Subtitle|Subheading|Description|Body|Text|Content)$/i);
@@ -65,22 +137,17 @@ function buildJsxBody(properties: WidgetProperty[]): string {
     handled.add(videoProp.name);
   }
 
-  // Image — MixedContentContext requires an async REST fetch before rendering.
-  // The entity emits the name without the "Url" suffix (e.g. BackgroundImageUrl → BackgroundImage).
-  if (imageProp) {
-    const emittedName = imagePropertyName(imageProp.name);
+  // Images — rendered from the server-side fetch results (see buildImageFetches).
+  for (const img of images) {
     lines.push(
-      `        {/*`,
-      `          TODO: ${emittedName} is a MixedContentContext content selector.`,
-      `          Fetch the related item via RestClient before rendering:`,
-      ``,
-      `          const items = await RestClient.getItems({ type: KnownContentTypes.Images, ... });`,
-      ``,
-      `          See: references/Nextjs-projects-sitefinity/nextjs-samples/src/sitefinity-data/`,
-      `               for the full async fetch pattern.`,
-      `        */}`
+      `        {${img.varName} && (`,
+      `          <img`,
+      `            src={${img.varName}.Url}`,
+      `            alt={${img.varName}.AlternativeText ?? ${img.varName}.Title ?? ''}`,
+      `          />`,
+      `        )}`
     );
-    handled.add(imageProp.name);
+    handled.add(img.originalName);
   }
 
   // Title
@@ -219,12 +286,15 @@ export function generateNextjsComponent(
   const entityClassName = `${widgetName}Entity`;
   const kebabName = toKebabCase(widgetName);
 
+  const images = imageBindings(properties);
+  const hasImages = images.length > 0;
+
   const cssProp = properties.find((p) => p.renderHint === "css-class");
   const rootClass = cssProp
     ? `{props.model.Properties.${cssProp.name} ?? '${kebabName}'}`
     : `"${kebabName}"`;
 
-  const jsxBody = buildJsxBody(properties);
+  const jsxBody = buildJsxBody(properties, images);
 
   const animationNote =
     razorMetadata?.animationLibraries.length
@@ -235,14 +305,21 @@ export function generateNextjsComponent(
       ? `// NOTE: Original view had partial views: ${razorMetadata.partialViews.join(", ")}. Convert these to React components separately.\n`
       : "";
 
+  // Image properties require an async server component + a REST fetch before render.
+  const restImport = hasImages
+    ? `import { RestClient, RestSdkTypes, SdkItem } from '@progress/sitefinity-nextjs-sdk/rest-sdk';\n`
+    : "";
+  const fnKeyword = hasImages ? "export async function" : "export function";
+  const imageFetches = hasImages ? `\n${buildImageFetches(images)}\n` : "";
+
   const content = `import React from 'react';
 import { WidgetContext, htmlAttributes } from '@progress/sitefinity-nextjs-sdk';
-import { ${entityClassName} } from './${kebabName}.entity';
+${restImport}import { ${entityClassName} } from './${kebabName}.entity';
 ${animationNote}${partialNote}
-export function ${widgetName}(props: WidgetContext<${entityClassName}>) {
+${fnKeyword} ${widgetName}(props: WidgetContext<${entityClassName}>) {
     // Required — spreads Sitefinity page-editor data attributes onto the root element
     const dataAttributes = htmlAttributes(props);
-
+${imageFetches}
     return (
         <div {...dataAttributes} className=${rootClass}>
 ${jsxBody}

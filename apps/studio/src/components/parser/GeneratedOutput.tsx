@@ -1,14 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { type ConvertResult } from "@/types/widget";
 import {
+  AlertTriangle,
   Check,
   Copy,
   Download,
   FileCode2,
   Layers,
+  Loader2,
   Package,
+  Rocket,
 } from "lucide-react";
 
 interface Props {
@@ -17,9 +21,36 @@ interface Props {
 
 type Tab = "entity" | "component" | "registry" | "schema";
 
+interface ExportSuccess {
+  success: true;
+  filesWritten: string[];
+  registryPatched: boolean;
+  message: string;
+}
+
+async function exportToDemo(result: ConvertResult): Promise<ExportSuccess> {
+  const res = await fetch("/api/export-to-demo", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      entityContent: result.generated.entityFile.content,
+      componentContent: result.generated.componentFile.content,
+      widgetName: result.schema.widgetName,
+      registrySnippet: result.generated.registryEntrySnippet,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "Export failed");
+  return data as ExportSuccess;
+}
+
 export function GeneratedOutput({ result }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("entity");
   const [copied, setCopied] = useState(false);
+
+  const exportMutation = useMutation({
+    mutationFn: (r: ConvertResult) => exportToDemo(r),
+  });
 
   if (!result) {
     return (
@@ -117,8 +148,56 @@ export function GeneratedOutput({ result }: Props) {
               <Download className="w-3.5 h-3.5" />
               Download (.entity.ts + .tsx)
             </button>
+            <button
+              onClick={() => exportMutation.mutate(result)}
+              disabled={exportMutation.isPending}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {exportMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Rocket className="w-3.5 h-3.5" />
+              )}
+              {exportMutation.isPending ? "Exporting…" : "Test in Demo"}
+            </button>
           </div>
         </div>
+
+        {/* Export to demo — result banners */}
+        {exportMutation.isError && (
+          <div className="mb-3 flex items-start gap-2 p-2.5 rounded-md bg-destructive/10 border border-destructive/20 text-destructive text-xs">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>{exportMutation.error.message}</span>
+          </div>
+        )}
+
+        {exportMutation.isSuccess && (
+          <div className="mb-3 space-y-2">
+            <div className="flex items-start gap-2 p-2.5 rounded-md bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400 text-xs">
+              <Check className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+              <div className="min-w-0">
+                <p>{exportMutation.data.message}</p>
+                <ul className="mt-1 font-mono opacity-80 space-y-0.5">
+                  {exportMutation.data.filesWritten.map((f) => (
+                    <li key={f} className="break-all">
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {!exportMutation.data.registryPatched && (
+              <div className="flex items-start gap-2 p-2.5 rounded-md bg-yellow-500/10 border border-yellow-500/30 text-yellow-700 dark:text-yellow-400 text-xs">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                <span>
+                  Widget files written but widget-registry.ts was not found — paste the
+                  Registry Entry snippet manually
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-0">
