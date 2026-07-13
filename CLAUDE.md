@@ -40,7 +40,31 @@ No test suite yet. Monorepo has no root-level scripts — always operate from `a
 
 ---
 
-## Current version: v0.3.0 (Day 3 complete — Part A + Part B)
+## Current version: v0.4.0 (Day 4 complete — image resolution fix, four-pane MVC input, shared enum extraction, demo export)
+
+### Day 4 — STATUS: COMPLETE
+
+Four parts, all merged to `main` and tagged `v0.4.0`:
+
+1. **Image resolution fix** — `generator-nextjs-component.ts` was silently
+   rendering a fake `<img src=...>` for `renderHint === "image"` properties
+   instead of the honest async-fetch TODO. Fixed; verified against the Hero
+   Widget sample.
+2. **Four-pane MVC input** — `ConverterPanel.tsx`'s single MVC textarea was
+   replaced with four dedicated panes (controller / model / interface / view),
+   since a real MVC migration is rarely one pasted block. `parser-mvc-controller.ts`
+   and `parser-mvc-model.ts` updated to accept the four sources; interface pane
+   merges additive properties (see `MVC_AUTHOR_INTERFACE_SAMPLE`).
+3. **Shared enum extraction** — `src/lib/enum-extractor.ts` is new. Both
+   `parser-csharp.ts` (Renderer) and `parser-mvc-model.ts` (MVC) now call it for
+   plain-enum and `[Flags]`-enum detection, instead of duplicating the regex
+   logic per parser. This closes the "enum → `unknown`" gap that was open on
+   both parsers since v0.1/v0.3.
+4. **"Test in Demo" export** — `POST /api/export-to-demo` (`src/app/api/export-to-demo/route.ts`
+   + `src/lib/demo-export.ts`) writes the generated entity+component into a
+   target demo project's `widgets/` folder and patches its `widget-registry.ts`
+   (idempotent, indentation-preserving, dev-only — 403s in production). See
+   "CRITICAL — Test in Demo path" below for the open gap this surfaced.
 
 ### CRITICAL CONTEXT — the output format changed on Day 3 Part A
 
@@ -66,24 +90,27 @@ nothing calls it. Safe to delete in a future cleanup pass. The active generators
 
 | File | Purpose |
 |------|---------|
-| `src/lib/parser-csharp.ts` | Parses Sitefinity .NET Core Renderer ViewModel `.cs` files. Regex-based. Extracts properties, types, `[DisplayName]`, `[Description]`, `[ContentSection]`, `[DefaultValue]`. Infers `renderHint` per property from name patterns. |
+| `src/lib/parser-csharp.ts` | Parses Sitefinity .NET Core Renderer ViewModel `.cs` files. Regex-based. Extracts properties, types, `[DisplayName]`, `[Description]`, `[ContentSection]`, `[DefaultValue]`. Infers `renderHint` per property from name patterns. **(Day 4)** Enum + `[Flags]` enum detection via shared `enum-extractor.ts` — no longer falls back to `unknown`. |
 | `src/lib/parser-razor.ts` | Parses Sitefinity `.cshtml` Razor views. Extracts `@model`, all `Model.X` usages, nested object shapes (Image/Video), `Html.Raw` → `renderHint: "html"`, `Html.PartialAsync` dependencies, `data-aos` detection. |
-| `src/lib/parser-mvc-controller.ts` | **(Day 3 Part B)** Parses MVC Controller `.cs`. Finds `[ControllerToolboxItem(Name, Title, SectionName)]`. Finds `[TypeConverter(typeof(ExpandableObjectConverter))]` property → extracts nested Model class name. **Fallback:** if no `[TypeConverter]`, parses controller's own properties directly (SimpleContentBlock pattern). Stores original toolbox `Name` as `widgetKey` — see critical note below. |
-| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + `ItemType` pairs → content-reference property. Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. |
+| `src/lib/enum-extractor.ts` | **(Day 4 Part 3)** Shared C# enum extraction used by both `parser-csharp.ts` and `parser-mvc-model.ts`. Detects plain vs `[Flags]` enums (single-line and multi-line forms), returns member names in declaration order. Also exports `isKnownOrmType` so `DynamicContent`/`SdkItem`/etc. aren't mistaken for enums. |
+| `src/lib/parser-mvc-controller.ts` | **(Day 3 Part B, Day 4 Part 2)** Parses MVC Controller `.cs`. Finds `[ControllerToolboxItem(Name, Title, SectionName)]`. Finds `[TypeConverter(typeof(ExpandableObjectConverter))]` property → extracts nested Model class name. **Fallback:** if no `[TypeConverter]`, parses controller's own properties directly (SimpleContentBlock pattern). Stores original toolbox `Name` as `widgetKey` — see critical note below. Now accepts the four-pane input (controller/model/interface/view) from `ConverterPanel.tsx`. |
+| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B, Day 4 Part 2+3)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + `ItemType` pairs → content-reference property. Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum via shared `enum-extractor.ts`. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. Merges additive properties from an optional TS interface pane. |
 | `src/lib/generator-nextjs-entity.ts` | **(Day 3 Part A)** `WidgetSchema` → TypeScript class with `@WidgetEntity`, `@DisplayName`, `@Description`, `@ContentSection`, `@DefaultValue`, `@Content`/`@DataType` decorators. `renderHint === "image"` → `MixedContentContext \| null` + `@Content({Type: KnownContentTypes.Images})` — always, regardless of original source type. |
-| `src/lib/generator-nextjs-component.ts` | **(Day 3 Part A)** `WidgetSchema` → function component. Always includes `const dataAttributes = htmlAttributes(props)` spread on root. Props accessed as `props.model.Properties.X`. `renderHint === "html"` → `dangerouslySetInnerHTML`. `renderHint === "image"` → TODO comment (needs real async REST fetch). Handles `renderHint === "choice"` and `type === "string[]"` cases. |
+| `src/lib/generator-nextjs-component.ts` | **(Day 3 Part A, fixed Day 4 Part 1)** `WidgetSchema` → function component. Always includes `const dataAttributes = htmlAttributes(props)` spread on root. Props accessed as `props.model.Properties.X`. `renderHint === "html"` → `dangerouslySetInnerHTML`. `renderHint === "image"` → honest TODO comment (needs real async REST fetch) — previously this silently rendered a fake `<img src=...>`, now fixed. Handles `renderHint === "choice"` and `type === "string[]"` cases. |
 | `src/lib/generator-widget-registry-entry.ts` | **(Day 3 Part A+B)** Registry snippet. Uses `schema.widgetKey ?? widgetName` as the dictionary key — original toolbox name takes priority over sanitized identifier. See critical note below. |
+| `src/lib/demo-export.ts` | **(Day 4 Part 4)** Filesystem side of "Test in Demo". `exportWidgetToDemo()` writes `<kebab>/<kebab>.entity.ts` + `.tsx` into a target `widgets/` folder. `patchRegistrySource()` inserts new imports + a registry entry into an existing `widget-registry.ts` — idempotent (skips already-registered keys/imports), preserves the host file's indentation style, handles `widgets: {}` on one line. Registry-key matching escapes regex metacharacters (`escapeRegExp`) before building the lookup `RegExp` — fixed after review flagged that an unescaped MVC `widgetKey` containing e.g. `(` or `.` could throw or misfire. |
 | `src/lib/widget-generator.ts` | **DEPRECATED — do not use or extend.** Confirmed orphaned (no callers). Remove in future cleanup. |
 | `src/lib/supabase.ts` | Supabase client. `saveWidget`, `listWidgets`, `getWidget`, `deleteWidget`. Returns null gracefully if env vars not set. |
-| `src/lib/samples.ts` | Renderer, Razor, and MVC sample source strings for converter UI. MVC samples: `MVC_AUTHOR_WIDGET_SAMPLE`, `MVC_CUSTOM_IMAGE_WIDGET_SAMPLE`, `MVC_SIMPLE_CONTENT_BLOCK_SAMPLE`, `MVC_LIST_WIDGET_SAMPLE`. |
-| `src/types/widget.ts` | All shared types. `WidgetSchema` now has `widgetKey?: string` (MVC original toolbox name) and `mvcMetadata?: MvcMetadata`. `SourceType` includes `"mvc"`. `GeneratedWidget` has `entityFile`, `componentFile`, `registryEntrySnippet` (primary v0.3) and `@deprecated` `typesFile`, `metadataFile` (v0.2, kept for backward compat). |
+| `src/lib/samples.ts` | Renderer, Razor, and MVC sample source strings for converter UI. MVC samples now split per-pane: `MVC_AUTHOR_CONTROLLER_SAMPLE` / `MVC_AUTHOR_MODEL_SAMPLE` / `MVC_AUTHOR_INTERFACE_SAMPLE`, `MVC_CUSTOM_IMAGE_CONTROLLER_SAMPLE` / `MVC_CUSTOM_IMAGE_MODEL_SAMPLE`, `MVC_SIMPLE_CONTENT_BLOCK_SAMPLE`, `MVC_LIST_WIDGET_SAMPLE`. |
+| `src/types/widget.ts` | All shared types. `WidgetSchema` now has `widgetKey?: string` (MVC original toolbox name) and `mvcMetadata?: MvcMetadata`. `SourceType` includes `"mvc"`. `ConvertRequest` now carries the four MVC panes (`mvcController`, `mvcModel`, `mvcInterface`, `mvcView`) instead of one blob. `GeneratedWidget` has `entityFile`, `componentFile`, `registryEntrySnippet` (primary v0.3) and `@deprecated` `typesFile`, `metadataFile` (v0.2, kept for backward compat). |
 | `src/app/api/parse-widget/route.ts` | POST endpoint. Routes `sourceType === "viewmodel"` → `parseWidget()`, `"cshtml"` → `parseRazorView()`, `"mvc"` → `parseMvcController()`. Calls `generateEntityFile`, `generateNextjsComponent`, `generateRegistryEntry` directly (not the deprecated `generateWidget`). |
+| `src/app/api/export-to-demo/route.ts` | **(Day 4 Part 4)** `POST` — writes generated files into a demo project via `exportWidgetToDemo()`. `nodejs` runtime (fs needs it, not Edge). 403s outside development. 404s with a fixed message if the demo app dir doesn't exist. See "CRITICAL — Test in Demo path" below. |
 | `src/app/api/widgets/route.ts` | GET (list all) + POST (save) widgets via Supabase. |
 | `src/app/api/widgets/[id]/route.ts` | GET (single) + DELETE widget by id. |
 | `src/app/convert/page.tsx` | Split-pane converter. Left: `ConverterPanel`. Right: `GeneratedOutput`. |
 | `src/app/marketplace/page.tsx` | Grid of saved widgets. Download / delete. Shows setup instructions if Supabase not configured. |
-| `src/components/parser/ConverterPanel.tsx` | Three-tab input: "ViewModel (.cs)" \| "Razor View (.cshtml)" \| "MVC Widget". Convert + Save to Marketplace buttons. |
-| `src/components/parser/GeneratedOutput.tsx` | Tabs: Entity (`.entity.ts`) \| Component (`.tsx`) \| Registry Entry \| Schema. |
+| `src/components/parser/ConverterPanel.tsx` | Three-tab input: "ViewModel (.cs)" \| "Razor View (.cshtml)" \| "MVC Widget". **(Day 4 Part 2)** The MVC tab is now four panes — controller (required), model (required unless the controller has no `[TypeConverter]`), interface (optional, additive props), view (optional, unused by parsers today). Convert + Save to Marketplace buttons. |
+| `src/components/parser/GeneratedOutput.tsx` | Tabs: Entity (`.entity.ts`) \| Component (`.tsx`) \| Registry Entry \| Schema. **(Day 4 Part 4)** "Test in Demo" button calls `/api/export-to-demo`; shows success (files written + registry patched) or error banners inline. |
 | `src/components/marketplace/` | `MarketplaceHeader`, `MarketplaceGrid`, `WidgetCard` components. |
 
 ---
@@ -135,6 +162,42 @@ so the closing brace never returned to 0, consuming the rest of the file).
 three of its properties (`ListTitle`, `ListType`, `ListItems`). If this bug ever
 regresses, converting that sample will show only `ListTitle` in the output instead of
 all three — that sample IS the regression test until a real test suite exists.
+
+---
+
+## CRITICAL — Test in Demo path (open gap, do not "fix" by touching feature/demo-project)
+
+`POST /api/export-to-demo` resolves its target as `../../demo/src/app/widgets`
+relative to `apps/studio` (i.e. a `demo/` folder at the monorepo root, laid out
+like `nextjs-samples`). **That folder does not exist in this repo or its
+history** — clicking "Test in Demo" today returns the 404 in `DEMO_NOT_FOUND`.
+
+What actually exists instead:
+- `demo-project/` (note: no `demo/`) is present on disk but untracked and
+  empty of source (`.next`, `certificates`, `node_modules`, `.env.development`
+  only) — its source was stripped from this branch by `e0f4cab chore: remove
+  Sitefinity renderer infrastructure from studio`.
+- The real, working demo — a Coriander Lane-based renderer already wired to a
+  live local Sitefinity CMS (see prior session's CMS/WebForms-proxy work) —
+  lives on the **`feature/demo-project`** branch at `demo-project/src/app/`.
+  Its `widget-registry.ts` imports widgets from `@components`, not the
+  per-folder `./widgets/x/x` convention `nextjs-samples` (and this studio's
+  generator) use — that's fine, `patchRegistrySource` doesn't assume either
+  layout, but new exported widgets would sit alongside the legacy coriander
+  ones under a different import convention.
+
+**This is a deliberate, unresolved product decision, not a bug** — restoring
+or merging `feature/demo-project` / `demo-project/` is explicitly manual and
+out of scope for Claude Code to do unprompted. Options on the table, in case
+this comes up again:
+1. Point the route at `demo-project` (restore `src/` from `feature/demo-project`) —
+   preferred, since that's the only target with a real backend behind it.
+2. Create a fresh `demo/` scaffold matching `nextjs-samples` exactly — clean but
+   has no backend, so "Test in Demo" would only prove the files compile, not render.
+3. Leave the path as-is and treat the 404 as correct until a decision is made.
+
+Do not restore, merge, or write into `feature/demo-project` or `demo-project/`
+without an explicit go-ahead in the conversation.
 
 ---
 
@@ -241,15 +304,15 @@ Those were placeholder guesses — do not implement them unless found in a real 
 ## Parser behaviour — what is and isn't supported
 
 ### parser-csharp.ts (Renderer ViewModels)
-Supported: `string/bool/int/float/double/decimal/List<T>` props, `[DisplayName]` `[Description]` `[ContentSection]` `[DefaultValue]`, nullable types, nested object detection, `renderHint` inference.
-Not supported: enum types (→ `unknown`), `[Flags]` detection, inheritance, multi-line attribute args, `init`-only properties.
+Supported: `string/bool/int/float/double/decimal/List<T>` props, `[DisplayName]` `[Description]` `[ContentSection]` `[DefaultValue]`, nullable types, nested object detection, `renderHint` inference, **(Day 4)** plain + `[Flags]` enum via `enum-extractor.ts`.
+Not supported: inheritance, multi-line attribute args, `init`-only properties.
 
 ### parser-razor.ts (Renderer .cshtml views)
 Supported: `@model`, `Model.X`/`Model.X?.Y`, `Html.Raw` → `"html"`, `PartialAsync`, `data-aos`, conditional props → `isNullable`.
 Not supported: MVC Razor syntax (`@Html.ActionLink`, `@Html.EditorFor`, `@Url.Action`) — deferred, may not be needed since MVC designer metadata lives on controller/model, not the view.
 
 ### parser-mvc-controller.ts + parser-mvc-model.ts
-Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum, JSON-array string, all three C# property syntax forms (A/B/C).
+Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum via shared `enum-extractor.ts`, JSON-array string, all three C# property syntax forms (A/B/C), **(Day 4)** four-pane input with additive interface-pane merging.
 Not yet verified: `SelectedItemId` + `ItemType` pair collapsing (logic is in parser but not tested against `SingleDynamicContent` explicitly), `DynamicContent` direct type detection.
 
 ---
@@ -275,7 +338,7 @@ feature/dayN-description      ← one branch per day/feature
 ```bash
 # Start a new day
 git checkout main
-git checkout -b feature/day4-description
+git checkout -b feature/day5-description
 
 # Commit during work
 git add -A
@@ -283,8 +346,8 @@ git commit -m "feat: description"
 
 # End of day — merge + tag
 git checkout main
-git merge --no-ff feature/day4-description -m "merge: Day 4"
-git tag v0.4.0
+git merge --no-ff feature/day5-description -m "merge: Day 5"
+git tag v0.5.0
 ```
 
 Commit prefixes: `feat:` `fix:` `refactor:` `chore:` `docs:`
@@ -292,21 +355,37 @@ Version bumps: patch = bug fix, minor = feature complete, major = v1.0 Marketpla
 
 ---
 
-## What to build next (Day 4)
+## What to build next (Day 5)
 
-**Branch:** `feature/day4-monaco-preview`
+**Branch:** `feature/day5-monaco-history-preview`
 
 Priority order:
-1. Replace the `<textarea>` inputs in `ConverterPanel.tsx` with Monaco Editor
-   (`@monaco-editor/react` — already installed, not yet wired up).
-   C# tab → C# language mode. Razor tab → HTML language mode. MVC tab → C# language mode.
-   Output panes in `GeneratedOutput.tsx` → TypeScript read-only mode.
-2. Widget history in `localStorage` — save each successful conversion, show a
-   history sidebar in the converter so you can reload a previous conversion
-   without re-pasting the source.
-3. Begin Renderer preview (if time): a simple prop-editing panel driven by
-   the parsed `WidgetSchema` — one input per property, output updates live.
-   `react-hook-form` + `zod` are already installed.
+1. **Monaco Editor integration** (carried over from Day 4's original plan —
+   not started yet). Replace the `<textarea>` inputs in `ConverterPanel.tsx`
+   (all four MVC panes included) with `@monaco-editor/react` — already
+   installed, not yet wired up. C#/MVC panes → C# language mode. Razor tab →
+   HTML language mode. Output panes in `GeneratedOutput.tsx` → TypeScript
+   read-only mode.
+2. **Widget conversion history in `localStorage`** — save each successful
+   conversion (schema + generated files), show a history sidebar in the
+   converter so a previous conversion can be reloaded without re-pasting
+   source. Natural pairing with Monaco since both touch `ConverterPanel.tsx`.
+3. **Verify `SelectedItemId` + `ItemType` pair collapsing** in
+   `parser-mvc-model.ts` against `SingleDynamicContent` — the logic exists but
+   per the "Parser behaviour" notes above it's never been exercised against
+   that specific sample. Add it as an MVC sample if it isn't already, run it
+   through, confirm it collapses to one `MixedContentContext` property.
+4. **Resolve the "Test in Demo" path decision** (see "CRITICAL — Test in Demo
+   path" above) — this is a product decision, raise it explicitly rather than
+   picking silently. Once decided, do the real end-to-end click (write a
+   widget, confirm it renders) before calling the feature done.
+5. If time remains: begin the Renderer prop-preview panel — a simple
+   prop-editing UI driven by the parsed `WidgetSchema` (one input per
+   property, output updates live). `react-hook-form` + `zod` are already
+   installed for this.
+6. Optional cleanup: delete `src/lib/widget-generator.ts` — confirmed
+   orphaned by grep across two review passes now (Day 3 and Day 4), safe to
+   remove.
 
 ---
 
@@ -335,7 +414,7 @@ packages/metadata-engine/   packages/widget-registry/    packages/visual-builder
 
 | Package | Planned use |
 |---------|-------------|
-| `@monaco-editor/react` + `monaco-editor` | **Day 4** — replace textarea |
+| `@monaco-editor/react` + `monaco-editor` | **Day 5** — replace textarea |
 | `ts-morph` | AST-based parser upgrade (replaces regex) |
 | `@codesandbox/sandpack-react` | Preview Studio iframe |
 | `@dnd-kit/core` + sortable + utilities | Visual Builder canvas |
@@ -360,8 +439,8 @@ Radix UI primitives installed but not yet wired — use raw HTML + Tailwind for 
 | v0.1 | ✅ | Renderer parser + generator + converter UI |
 | v0.2 | ✅ | Razor parser + render hints + Supabase + Marketplace |
 | v0.3 | ✅ | Generator retargeted to real SDK pattern + MVC migration engine |
-| v0.4 | 🔨 next | Monaco editor + widget history + Renderer prop preview |
-| v0.5 | | Metadata engine — enum support, `[Flags]`, inheritance in Renderer parser |
+| v0.4 | ✅ | Image resolution fix + four-pane MVC input + shared enum/`[Flags]` extraction (both parsers) + "Test in Demo" export |
+| v0.5 | 🔨 next | Monaco editor + widget history + resolve Test-in-Demo path + Renderer prop preview + inheritance in Renderer parser |
 | v0.6 | | Preview Studio (Sandpack iframe + prop editor forms) |
 | v0.7 | | Visual Builder (dnd-kit canvas) |
 | v0.8 | | AI-assisted conversion |
