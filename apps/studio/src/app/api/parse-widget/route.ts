@@ -17,7 +17,17 @@ export async function POST(
 ): Promise<NextResponse<ConvertResult | ConvertErrorResponse>> {
   try {
     const body = (await request.json()) as ConvertRequest;
-    const { sourceType = "viewmodel", csharpSource, razorSource } = body;
+    const {
+      sourceType = "viewmodel",
+      csharpSource,
+      razorSource,
+      mvcModel,
+      mvcInterface,
+    } = body;
+
+    // Back-compat: older callers posted the combined controller+model blob as
+    // csharpSource. Treat it as the controller pane.
+    const mvcController = body.mvcController ?? csharpSource;
 
     // --- Validate input ---
     if (sourceType === "cshtml") {
@@ -35,14 +45,14 @@ export async function POST(
           { status: 422 }
         );
       }
-    } else {
-      if (!csharpSource?.trim()) {
+    } else if (sourceType === "mvc") {
+      if (!mvcController?.trim()) {
         return NextResponse.json(
-          { error: "Missing csharpSource for viewmodel/mvc sourceType." },
+          { error: "Missing mvcController for mvc sourceType." },
           { status: 400 }
         );
       }
-      if (sourceType === "mvc" && !csharpSource.includes("ControllerToolboxItem")) {
+      if (!mvcController.includes("ControllerToolboxItem")) {
         return NextResponse.json(
           {
             error: "No [ControllerToolboxItem] attribute found. Make sure this is a Sitefinity MVC widget controller with [ControllerToolboxItem(Name, Title, SectionName)].",
@@ -50,14 +60,33 @@ export async function POST(
           { status: 422 }
         );
       }
+      // The Model pane is only meaningful for the nested-Model (TypeConverter) pattern.
+      // Fallback widgets (SimpleContentBlock, ListWidget) keep their props on the controller.
+      if (mvcController.includes("[TypeConverter(") && !mvcModel?.trim()) {
+        return NextResponse.json(
+          {
+            error: "This controller uses [TypeConverter(typeof(ExpandableObjectConverter))], so its properties live on a nested Model class. Paste that Model class into the Model (.cs) field.",
+          },
+          { status: 422 }
+        );
+      }
+    } else {
+      if (!csharpSource?.trim()) {
+        return NextResponse.json(
+          { error: "Missing csharpSource for viewmodel sourceType." },
+          { status: 400 }
+        );
+      }
     }
 
     // --- Parse ---
+    // NOTE: mvcView is accepted by the API but not yet parsed — MVC designer metadata
+    // lives on the controller/model, not the view (see CLAUDE.md parser notes).
     let schema;
     if (sourceType === "cshtml") {
       schema = parseRazorView(razorSource!);
     } else if (sourceType === "mvc") {
-      schema = parseMvcController(csharpSource!);
+      schema = parseMvcController(mvcController!, mvcModel, mvcInterface);
     } else {
       schema = parseWidget(csharpSource!);
     }

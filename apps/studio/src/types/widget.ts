@@ -57,7 +57,12 @@ export interface WidgetProperty {
   nestedShape?: NestedObjectShape;
 
   // Set when renderHint === "choice" (enum properties)
-  enumChoices?: string[];     // enum member names, e.g. ["Numbers", "Bullets"]
+  /**
+   * Enum member names, e.g. ["Numbers", "Bullets"].
+   * UNDEFINED means the enum declaration was not found in any pasted source —
+   * the generator then emits a TODO instead of referencing an undefined const.
+   */
+  enumValues?: string[];
   enumTypeName?: string;      // original C# enum type name, e.g. "ListMode"
   isFlags?: boolean;          // true → multi-select (ChipChoice), false → RadioChoice
 }
@@ -166,6 +171,16 @@ export interface ConvertRequest {
   csharpSource?: string;
   razorSource?: string;
   sourceType: SourceType;
+
+  // --- MVC four-pane input (sourceType === "mvc") ---
+  /** Controller .cs — required. Carries [ControllerToolboxItem] and maybe [TypeConverter]. */
+  mvcController?: string;
+  /** Model .cs — required only when the controller uses [TypeConverter(ExpandableObjectConverter)]. */
+  mvcModel?: string;
+  /** Interface .cs — optional. Properties are additive; they never override the concrete model. */
+  mvcInterface?: string;
+  /** View .cshtml — optional. Accepted but not yet parsed (MVC designer metadata lives on controller/model). */
+  mvcView?: string;
 }
 
 export interface ConvertResult {

@@ -12,6 +12,11 @@
  */
 
 import type { WidgetProperty, WidgetSchema, PropertyType, RenderHint } from "@/types/widget";
+import {
+  extractEnumDefinitions,
+  isKnownOrmType,
+  type EnumDefinition,
+} from "./enum-extractor";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -50,6 +55,11 @@ function inferRenderHint(propName: string, type: PropertyType): RenderHint {
   }
   if (n.includes("cssclass") || n.includes("wrapperclass") || n.includes("classname"))
     return "css-class";
+  // Image-named string props (e.g. BackgroundImageUrl) resolve to an image content
+  // selector — this must win over the "url" suffix check below, since the Url suffix
+  // is stripped and the prop becomes a MixedContentContext (see CLAUDE.md image rule).
+  if (n.includes("image") || n.includes("photo") || n.includes("banner") || n.includes("thumbnail"))
+    return "image";
   if (n.includes("url") || n.includes("href") || n.includes("link") || n.includes("src"))
     return "url";
   if (n.includes("html") || n.includes("content") || n.includes("body") || n.includes("description"))
@@ -131,12 +141,47 @@ function deriveWidgetName(className: string): string {
 // Property extraction
 // ---------------------------------------------------------------------------
 
+/** Enum fields for a property whose C# type isn't a recognised primitive. */
+interface EnumFields {
+  enumValues?: string[];
+  enumTypeName: string;
+  isFlags: boolean;
+}
+
+/**
+ * Decide whether an unresolved C# type is an enum, and if so gather its members.
+ *
+ * Returns null when the property is not a choice field (a primitive, a nested
+ * object, or a known ORM/content type that needs a RestClient migration).
+ * Returns `enumValues: undefined` when the type looks like an enum but its
+ * declaration was not in the pasted source — the generator emits a TODO for that.
+ */
+function resolveEnum(
+  csType: string,
+  type: PropertyType,
+  enumDefs: Map<string, EnumDefinition>
+): EnumFields | null {
+  if (type !== "unknown") return null;
+
+  const enumTypeName = csType.replace(/\?$/, "").trim();
+  const def = enumDefs.get(enumTypeName);
+  if (def) {
+    return { enumValues: def.values, enumTypeName, isFlags: def.isFlags };
+  }
+  if (isKnownOrmType(enumTypeName)) return null;
+
+  return { enumValues: undefined, enumTypeName, isFlags: false };
+}
+
 /**
  * Split the class body into property blocks, each containing:
  * - Zero or more attribute lines before the property
  * - The property declaration line itself
  */
-function extractProperties(classBody: string): WidgetProperty[] {
+function extractProperties(
+  classBody: string,
+  enumDefs: Map<string, EnumDefinition>
+): WidgetProperty[] {
   const properties: WidgetProperty[] = [];
 
   // Match attribute blocks + property declarations
@@ -164,7 +209,10 @@ function extractProperties(classBody: string): WidgetProperty[] {
 
       const attrs = extractAttributes(attributeLines.join("\n"));
       const type = parseTypeName(csType);
-      const renderHint = inferRenderHint(propName, type);
+      const enumFields = resolveEnum(csType, type, enumDefs);
+      const renderHint: RenderHint = enumFields
+        ? "choice"
+        : inferRenderHint(propName, type);
 
       properties.push({
         name: propName,
@@ -172,6 +220,7 @@ function extractProperties(classBody: string): WidgetProperty[] {
         type,
         renderHint,
         isNullable: isNullable(csType),
+        ...(enumFields ?? {}),
         ...attrs,
       });
 
@@ -201,7 +250,11 @@ export function parseWidget(csharpSource: string): WidgetSchema {
   const classBodyMatch = csharpSource.match(/\{([\s\S]*)\}/);
   const classBody = classBodyMatch ? classBodyMatch[1] : csharpSource;
 
-  const properties = extractProperties(classBody);
+  // Enums may be declared alongside the class (same namespace / same file),
+  // so scan the whole source, not just the class body.
+  const enumDefs = extractEnumDefinitions(csharpSource);
+
+  const properties = extractProperties(classBody, enumDefs);
 
   return {
     className,

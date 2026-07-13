@@ -108,7 +108,9 @@ namespace SitefinityProject.Widgets.CardGrid
 // Paste controller + model as a single block — the parser handles both classes.
 // ---------------------------------------------------------------------------
 
-export const MVC_AUTHOR_WIDGET_SAMPLE = `// AuthorController.cs
+// --- Author widget: [TypeConverter] nested-Model pattern (controller + model panes) ---
+
+export const MVC_AUTHOR_CONTROLLER_SAMPLE = `// AuthorController.cs
 using System;
 using System.ComponentModel;
 using System.Web.Mvc;
@@ -145,9 +147,11 @@ namespace AuthorWidget.MVC.Controllers
         private AuthorModel model;
         private string template = "Default";
     }
-}
+}`;
 
-// AuthorModel.cs
+export const MVC_AUTHOR_MODEL_SAMPLE = `// AuthorModel.cs
+using System;
+
 namespace AuthorWidget.MVC.Models.Author
 {
     public class AuthorModel
@@ -169,7 +173,26 @@ namespace AuthorWidget.MVC.Models.Author
     }
 }`;
 
-export const MVC_CUSTOM_IMAGE_SAMPLE = `// CustomImageController.cs
+/** Optional interface pane demo — Twitter/Bio are additive, Name already exists on the model. */
+export const MVC_AUTHOR_INTERFACE_SAMPLE = `// IAuthorModel.cs
+using System;
+
+namespace AuthorWidget.MVC.Models.Author
+{
+    public interface IAuthorModel
+    {
+        string Name { get; set; }
+
+        string TwitterHandle { get; set; }
+
+        [DynamicLinksContainer]
+        string Bio { get; set; }
+    }
+}`;
+
+// --- Custom Image widget: Guid+ProviderName pair; toolbox Name != clean identifier ---
+
+export const MVC_CUSTOM_IMAGE_CONTROLLER_SAMPLE = `// CustomImageController.cs
 using System.ComponentModel;
 using System.Web.Mvc;
 using CustomImageWidget.Mvc.Models;
@@ -198,9 +221,11 @@ namespace CustomImageWidget.Mvc.Controllers
 
         private CustomImageModel model;
     }
-}
+}`;
 
-// CustomImageModel.cs
+export const MVC_CUSTOM_IMAGE_MODEL_SAMPLE = `// CustomImageModel.cs
+using System;
+
 namespace CustomImageWidget.Mvc.Models
 {
     public class CustomImageModel
@@ -273,7 +298,7 @@ namespace ListWidget.Mvc.Controllers
         }
 
         private string listTitle = "My list title";
-        private string listItems = "[\"First Item\", \"Second Item\", \"Third Item\"]";
+        private string listItems = "[\\"First Item\\", \\"Second Item\\", \\"Third Item\\"]";
     }
 }`;
 

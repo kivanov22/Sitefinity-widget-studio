@@ -46,7 +46,26 @@ function sanitiseIdentifier(name: string): string {
 // Public API
 // ---------------------------------------------------------------------------
 
-export function parseMvcController(source: string): WidgetSchema {
+/**
+ * @param controllerSource  Controller .cs — carries [ControllerToolboxItem] and
+ *                          optionally [TypeConverter(ExpandableObjectConverter)].
+ * @param modelSource       Model .cs. Required for the TypeConverter pattern; ignored
+ *                          in the fallback pattern (props live on the controller).
+ * @param interfaceSource   Optional interface .cs — additive properties.
+ */
+export function parseMvcController(
+  controllerSource: string,
+  modelSource?: string,
+  interfaceSource?: string
+): WidgetSchema {
+  const source = controllerSource;
+
+  // Enums / [Flags] may be declared in any pane (ListWidget declares ListMode next to
+  // its controller), so give the model parser the full text to search.
+  const searchSource = [controllerSource, modelSource, interfaceSource]
+    .filter((s): s is string => Boolean(s && s.trim()))
+    .join("\n\n");
+
   // 1. Extract [ControllerToolboxItem(Name, Title, SectionName, ModuleName)]
   const toolboxAttrMatch = source.match(/\[ControllerToolboxItem\s*\(([^)]+)\)\]/);
   const attrArgs = toolboxAttrMatch?.[1] ?? "";
@@ -86,7 +105,17 @@ export function parseMvcController(source: string): WidgetSchema {
 
   // 3. Route to model class parser
   if (nestedModelClassName) {
-    return parseMvcModelClass(source, nestedModelClassName, widgetName, mvcMetadata);
+    // TypeConverter pattern — the real properties live on the nested Model class.
+    // Prefer the Model pane; fall back to the controller pane if the user pasted
+    // both classes together there.
+    return parseMvcModelClass({
+      modelSource: modelSource?.trim() ? modelSource : controllerSource,
+      className: nestedModelClassName,
+      widgetName,
+      mvcMetadata,
+      interfaceSource,
+      searchSource,
+    });
   }
 
   // Fallback: parse the controller's own public properties directly.
@@ -96,5 +125,12 @@ export function parseMvcController(source: string): WidgetSchema {
   );
   const controllerClassName = controllerClassMatch?.[1] ?? "Widget";
 
-  return parseMvcModelClass(source, controllerClassName, widgetName, mvcMetadata);
+  return parseMvcModelClass({
+    modelSource: controllerSource,
+    className: controllerClassName,
+    widgetName,
+    mvcMetadata,
+    interfaceSource,
+    searchSource,
+  });
 }

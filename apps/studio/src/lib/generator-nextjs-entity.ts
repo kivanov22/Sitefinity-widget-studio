@@ -27,9 +27,21 @@ function imagePropertyName(name: string): string {
   return name.replace(/Url$/i, "");
 }
 
+/** True when we found the enum's members and can emit a real TS enum + choices array. */
+function isResolvedEnum(prop: WidgetProperty): boolean {
+  return (
+    prop.renderHint === "choice" &&
+    Boolean(prop.enumTypeName) &&
+    Boolean(prop.enumValues?.length)
+  );
+}
+
 function getTsType(prop: WidgetProperty): string {
   if (prop.renderHint === "image") return "MixedContentContext | null";
-  if (prop.renderHint === "choice" && prop.enumTypeName) return `${prop.enumTypeName} | null`;
+  // Only reference the TS enum type when we actually emit that enum above the class.
+  // An unresolved enum falls back to `string | null` so the file still compiles.
+  if (isResolvedEnum(prop)) return `${prop.enumTypeName} | null`;
+  if (prop.renderHint === "choice") return "string | null";
   switch (prop.type) {
     case "string":   return "string | null";
     case "number":   return "number | null";
@@ -61,13 +73,27 @@ interface EnumDef {
   isFlags: boolean;
 }
 
+/**
+ * Emit, above the entity class, a TS enum plus its ChoiceItem[] array — matching
+ * all-properties.entity.ts:
+ *
+ *   enum ListMode {
+ *       Numbers = 'Numbers',
+ *   }
+ *
+ *   const ListModeChoices: ChoiceItem[] = [
+ *       { Title: 'Numbers', Value: ListMode.Numbers }
+ *   ];
+ */
 function buildEnumSection(enumDefs: Map<string, EnumDef>): string {
   const parts: string[] = [];
   for (const [name, def] of enumDefs) {
-    const enumValues = def.choices.map((c) => `    ${c} = '${c}'`).join(",\n");
-    const choiceItems = def.choices.map((c) => `    {Value: ${name}.${c}}`).join(",\n");
+    const members = def.choices.map((c) => `    ${c} = '${c}',`).join("\n");
+    const choiceItems = def.choices
+      .map((c) => `    { Title: '${c}', Value: ${name}.${c} }`)
+      .join(",\n");
     parts.push(
-      `enum ${name} {\n${enumValues}\n}\n\nconst ${name}Choices: ChoiceItem[] = [\n${choiceItems}\n];`
+      `enum ${name} {\n${members}\n}\n\nconst ${name}Choices: ChoiceItem[] = [\n${choiceItems}\n];`
     );
   }
   return parts.join("\n\n") + "\n\n";
@@ -136,21 +162,31 @@ export function generateEntityFile(
       imports.add("KnownContentTypes");
       imports.add("MixedContentContext");
       decorators.push(`  @Content({ Type: KnownContentTypes.Images })`);
-    } else if (prop.renderHint === "choice" && prop.enumChoices && prop.enumTypeName) {
-      // Enum/choice field — collect the enum definition and emit @Choice + @DataType
+    } else if (isResolvedEnum(prop)) {
+      // Enum whose declaration we found — emit the enum + choices array above the
+      // class and wire the decorators to it.
       imports.add("Choice");
       imports.add("ChoiceItem");
       imports.add("DataType");
       imports.add("KnownFieldTypes");
-      enumDefs.set(prop.enumTypeName, {
-        choices: prop.enumChoices,
+      enumDefs.set(prop.enumTypeName!, {
+        choices: prop.enumValues!,
         isFlags: prop.isFlags ?? false,
       });
-      decorators.push(`  @Choice(${prop.enumTypeName}Choices)`);
+      decorators.push(`  @Choice({ Choices: ${prop.enumTypeName}Choices })`);
       const fieldType = prop.isFlags
         ? "KnownFieldTypes.ChipChoice"
         : "KnownFieldTypes.RadioChoice";
       decorators.push(`  @DataType(${fieldType})`);
+    } else if (prop.renderHint === "choice" && prop.enumTypeName) {
+      // Enum declared in a file the user didn't paste. Emit a TODO naming the array
+      // they must define, and keep the decorators commented out — referencing an
+      // undefined const here would produce a file that does not compile.
+      decorators.push(
+        `  // TODO: define ${prop.enumTypeName}Choices — enum declared in a separate file`,
+        `  // @Choice({ Choices: ${prop.enumTypeName}Choices })`,
+        `  // @DataType(KnownFieldTypes.RadioChoice)`
+      );
     } else if (prop.type === "string[]") {
       // IList<string> / JSON-array-style string → @DataType(ComplexType.Enumerable, 'string')
       imports.add("DataType");

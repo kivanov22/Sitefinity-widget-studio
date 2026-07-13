@@ -17,6 +17,11 @@
 
 import type { WidgetProperty, WidgetSchema, PropertyType, RenderHint } from "@/types/widget";
 import type { MvcMetadata } from "@/types/widget";
+import {
+  extractEnumDefinitions,
+  isKnownOrmType,
+  type EnumDefinition,
+} from "./enum-extractor";
 
 // ---------------------------------------------------------------------------
 // Internal raw property (before pair-collapse and renderHint inference)
@@ -37,16 +42,11 @@ function toCamelCase(name: string): string {
 }
 
 /**
- * Extract the body of a named class from a multi-class source blob.
- * Uses brace-depth tracking so nested types don't confuse it.
+ * Given a header match that ends on its opening `{`, return the balanced body.
  */
-function extractClassBody(source: string, className: string): string | null {
-  const classRx = new RegExp(`\\bclass\\s+${className}\\b[^{]*\\{`);
-  const match = classRx.exec(source);
-  if (!match) return null;
-
+function bodyAfterHeader(source: string, headerEndIndex: number): string {
   let depth = 1;
-  let i = match.index + match[0].length;
+  let i = headerEndIndex;
   const start = i;
 
   while (i < source.length && depth > 0) {
@@ -56,6 +56,80 @@ function extractClassBody(source: string, className: string): string | null {
   }
 
   return source.slice(start, i - 1);
+}
+
+/**
+ * Extract the body of a named class from a multi-class source blob.
+ * Uses brace-depth tracking so nested types don't confuse it.
+ */
+function extractClassBody(source: string, className: string): string | null {
+  const classRx = new RegExp(`\\bclass\\s+${className}\\b[^{]*\\{`);
+  const match = classRx.exec(source);
+  if (!match) return null;
+  return bodyAfterHeader(source, match.index + match[0].length);
+}
+
+/**
+ * Extract the body of the first `interface IFoo { ... }` found in a source blob.
+ * The Interface pane holds a single interface, so we don't need it by name.
+ */
+function extractInterfaceBody(source: string): string | null {
+  const rx = /\binterface\s+\w+\b[^{]*\{/;
+  const match = rx.exec(source);
+  if (!match) return null;
+  return bodyAfterHeader(source, match.index + match[0].length);
+}
+
+/**
+ * Collect property declarations from a C# interface body.
+ *
+ * Interface members carry no access modifier, so `extractClassProps` (which
+ * anchors on `public`) will not see them:
+ *
+ *   [DynamicLinksContainer]
+ *   string Description { get; set; }
+ *   Guid ImageId { get; }
+ */
+function extractInterfaceProps(interfaceBody: string): RawMvcProp[] {
+  const results: RawMvcProp[] = [];
+  const lines = interfaceBody.split("\n");
+  let pendingAttrs: string[] = [];
+
+  const IFACE_PROP =
+    /^([\w<>?\[\], ]+?)\s+(\w+)\s*\{\s*get\s*;(?:\s*set\s*;)?\s*\}$/;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (
+      line === "" ||
+      line.startsWith("//") ||
+      line.startsWith("///") ||
+      line.startsWith("*") ||
+      line.startsWith("/*")
+    ) {
+      continue;
+    }
+
+    if (line.startsWith("[")) {
+      pendingAttrs.push(line);
+      continue;
+    }
+
+    // Method signatures contain "(" — skip them
+    if (line.includes("(")) {
+      pendingAttrs = [];
+      continue;
+    }
+
+    const m = line.match(IFACE_PROP);
+    if (m) {
+      results.push({ name: m[2], csType: m[1].trim(), attrs: [...pendingAttrs] });
+    }
+    pendingAttrs = [];
+  }
+
+  return results;
 }
 
 /**
@@ -205,26 +279,6 @@ function extractClassProps(classBody: string): RawMvcProp[] {
 }
 
 /**
- * Scan the full source for `enum TypeName { Val, Val2 }` definitions.
- * Returns Map<typeName, memberNames[]>.
- */
-function extractEnumDefinitions(source: string): Map<string, string[]> {
-  const defs = new Map<string, string[]>();
-  const enumRx = /\benum\s+(\w+)\s*\{([^}]+)\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = enumRx.exec(source)) !== null) {
-    const enumName = m[1];
-    const body = m[2];
-    const members = body
-      .split(",")
-      .map((s) => s.trim().replace(/\s*=\s*.*/, "").replace(/\/\/.*/, "").trim())
-      .filter((s) => s && /^\w+$/.test(s));
-    if (members.length > 0) defs.set(enumName, members);
-  }
-  return defs;
-}
-
-/**
  * Find backing-field defaults: `private TYPE fieldName = "value";`
  * Returns Map<camelCaseFieldName, rawValue>.
  */
@@ -278,9 +332,8 @@ function csTypeToPropertyType(csType: string): PropertyType {
 
 function buildWidgetProperty(
   raw: RawMvcProp,
-  enumDefs: Map<string, string[]>,
-  backingDefaults: Map<string, string>,
-  source: string
+  enumDefs: Map<string, EnumDefinition>,
+  backingDefaults: Map<string, string>
 ): WidgetProperty {
   const { name, csType, attrs } = raw;
   const attrBlock = attrs.join("\n");
@@ -290,25 +343,32 @@ function buildWidgetProperty(
 
   let type = csTypeToPropertyType(csType);
   let renderHint: RenderHint;
-  let enumChoices: string[] | undefined;
+  let enumValues: string[] | undefined;
   let enumTypeName: string | undefined;
   let isFlags: boolean | undefined;
 
   const normalizedCsType = csType.replace(/\?$/, "").trim();
 
-  // Check if it's an enum (type not recognised as a primitive, but defined in source)
+  // Unrecognised C# type — either an enum, or an ORM/content type.
   if (type === "unknown") {
-    const enumValues = enumDefs.get(normalizedCsType);
-    if (enumValues && enumValues.length > 0) {
+    const def = enumDefs.get(normalizedCsType);
+    if (def) {
+      // Enum declared in one of the pasted panes — we have its members.
       renderHint = "choice";
-      enumChoices = enumValues;
+      enumValues = def.values;
       enumTypeName = normalizedCsType;
-      // Check for [Flags] attribute on the enum definition
-      const flagsRx = new RegExp(`\\[Flags\\][\\s\\S]*?\\benum\\s+${normalizedCsType}\\b`);
-      isFlags = flagsRx.test(source);
-    } else {
-      // DynamicContent or other unknown ORM type
+      isFlags = def.isFlags;
+    } else if (isKnownOrmType(normalizedCsType)) {
+      // DynamicContent and friends need a RestClient migration, not a @Choice.
       renderHint = "text";
+    } else {
+      // Unresolved enum candidate: the declaration lives in a file the user didn't
+      // paste (the real ListWidget keeps ListMode in its own ListMode.cs). Keep the
+      // type name so the generator can emit a TODO naming the missing choices array.
+      renderHint = "choice";
+      enumTypeName = normalizedCsType;
+      enumValues = undefined;
+      isFlags = false;
     }
   } else if (isDynamicLinks) {
     renderHint = "html";
@@ -346,7 +406,7 @@ function buildWidgetProperty(
     type,
     renderHint,
     isNullable: true,
-    enumChoices,
+    enumValues,
     enumTypeName,
     isFlags,
     ...(displayNameM ? { displayName: displayNameM[1] } : {}),
@@ -360,26 +420,66 @@ function buildWidgetProperty(
 // Public API
 // ---------------------------------------------------------------------------
 
-/**
- * Parse the named class from `source` and return a WidgetSchema that can flow
- * directly into generator-nextjs-entity.ts and generator-nextjs-component.ts.
- *
- * @param source   Full C# source blob (may contain controller + model classes)
- * @param className  The class to extract properties from
- * @param widgetName Sanitised TypeScript identifier (e.g. "Author")
- * @param mvcMetadata Toolbox info collected by parser-mvc-controller
- */
-export function parseMvcModelClass(
-  source: string,
-  className: string,
-  widgetName: string,
-  mvcMetadata: MvcMetadata
-): WidgetSchema {
-  const classBody = extractClassBody(source, className) ?? source;
+export interface ParseMvcModelOptions {
+  /** The pane holding the class to parse (the Model .cs, or the Controller .cs in the fallback case). */
+  modelSource: string;
+  /** The class to extract properties from. */
+  className: string;
+  /** Sanitised TypeScript identifier (e.g. "Author"). */
+  widgetName: string;
+  /** Toolbox info collected by parser-mvc-controller. */
+  mvcMetadata: MvcMetadata;
+  /** Optional interface .cs — its properties are ADDITIVE (never override the model's). */
+  interfaceSource?: string;
+  /**
+   * Full text searched for enum + [Flags] declarations, and used as a fallback when
+   * `className` is not present in `modelSource`. The controller parser passes
+   * controller + model + interface joined, since an enum may be declared in any of them
+   * (e.g. ListWidget declares `ListMode` alongside its controller).
+   */
+  searchSource?: string;
+}
 
-  const rawProps = extractClassProps(classBody);
-  const enumDefs = extractEnumDefinitions(source);
+/**
+ * Parse the named class and return a WidgetSchema that can flow directly into
+ * generator-nextjs-entity.ts and generator-nextjs-component.ts.
+ *
+ * Interface properties are merged into the raw property list BEFORE image-pair
+ * collapsing, so a `Guid XId` + `string XProviderName` pair split across the model
+ * and its interface still collapses to one image property.
+ */
+export function parseMvcModelClass(options: ParseMvcModelOptions): WidgetSchema {
+  const {
+    modelSource,
+    className,
+    widgetName,
+    mvcMetadata,
+    interfaceSource,
+    searchSource,
+  } = options;
+
+  const enumSearch = searchSource ?? modelSource;
+
+  const classBody =
+    extractClassBody(modelSource, className) ??
+    extractClassBody(enumSearch, className) ??
+    modelSource;
+
+  const modelRaw = extractClassProps(classBody);
+
+  // Interface props are additive — only names absent from the concrete model are added.
+  const interfaceBody = interfaceSource?.trim()
+    ? extractInterfaceBody(interfaceSource)
+    : null;
+  const modelNames = new Set(modelRaw.map((p) => p.name));
+  const interfaceRaw = interfaceBody
+    ? extractInterfaceProps(interfaceBody).filter((p) => !modelNames.has(p.name))
+    : [];
+
+  const rawProps = [...modelRaw, ...interfaceRaw];
+  const enumDefs = extractEnumDefinitions(enumSearch);
   const backingDefaults = extractBackingFieldDefaults(classBody);
+  const source = enumSearch;
 
   // --- Image pair detection ---
   // Guid XId + string XProviderName → ONE image property named X
@@ -417,7 +517,7 @@ export function parseMvcModelClass(
       continue;
     }
 
-    properties.push(buildWidgetProperty(raw, enumDefs, backingDefaults, source));
+    properties.push(buildWidgetProperty(raw, enumDefs, backingDefaults));
   }
 
   // widgetKey: keep original toolbox Name for the @WidgetEntity key
