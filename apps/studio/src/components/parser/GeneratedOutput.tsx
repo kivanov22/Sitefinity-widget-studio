@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { type ConvertResult } from "@/types/widget";
+import { CodeEditor, type CodeEditorLanguage } from "./CodeEditor";
 import {
   AlertTriangle,
   Check,
@@ -96,6 +97,13 @@ export function GeneratedOutput({ result }: Props) {
     component: generated.componentFile.content,
     registry: generated.registryEntrySnippet,
     schema: JSON.stringify(schema, null, 2),
+  };
+
+  const activeLanguage: Record<Tab, CodeEditorLanguage> = {
+    entity: "typescript",
+    component: "typescript",
+    registry: "typescript",
+    schema: "json",
   };
 
   async function copyToClipboard() {
@@ -219,18 +227,23 @@ export function GeneratedOutput({ result }: Props) {
       </div>
 
       {/* Code */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 min-h-0 flex flex-col p-6 gap-3">
         {activeTab === "registry" && (
-          <p className="text-xs text-muted-foreground mb-3">
+          <p className="text-xs text-muted-foreground">
             Paste the imports at the top of your{" "}
             <code className="bg-muted px-1 rounded">widget-registry.ts</code>,
             then add the entry inside the{" "}
             <code className="bg-muted px-1 rounded">widgets: {"{}"}</code> object.
           </p>
         )}
-        <pre className="font-mono text-xs leading-relaxed text-foreground whitespace-pre">
-          {activeContent[activeTab]}
-        </pre>
+        <div className="flex-1 min-h-0">
+          <CodeEditor
+            key={activeTab}
+            language={activeLanguage[activeTab]}
+            value={activeContent[activeTab]}
+            readOnly
+          />
+        </div>
       </div>
 
       {/* Property summary */}

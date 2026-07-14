@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   type ConvertRequest,
@@ -21,7 +21,24 @@ import {
   MVC_SIMPLE_CONTENT_BLOCK_SAMPLE,
   MVC_LIST_WIDGET_SAMPLE,
 } from "@/lib/samples";
-import { AlertCircle, ChevronDown, ChevronUp, Loader2, Save, Wand2 } from "lucide-react";
+import {
+  addHistoryEntry,
+  formatRelativeTime,
+  loadHistory,
+  removeHistoryEntry,
+  type HistoryEntry,
+} from "@/lib/conversion-history";
+import { CodeEditor, type CodeEditorLanguage } from "./CodeEditor";
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  Loader2,
+  Save,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 
 interface Props {
   onResult: (result: ConvertResult) => void;
@@ -122,6 +139,7 @@ function MvcField({
   onChange,
   placeholder,
   rows,
+  language,
 }: {
   label: string;
   hint?: string;
@@ -130,6 +148,7 @@ function MvcField({
   onChange: (v: string) => void;
   placeholder: string;
   rows: number;
+  language: CodeEditorLanguage;
 }) {
   return (
     <div className="flex flex-col gap-1">
@@ -142,17 +161,9 @@ function MvcField({
         )}
         {hint && <span className="text-muted-foreground/70 font-normal">{hint}</span>}
       </label>
-      <textarea
-        className={`font-mono text-xs bg-muted/30 border rounded-lg p-3 resize-y focus:outline-none focus:ring-2 focus:ring-ring ${
-          required ? "border-border" : "border-border/60"
-        }`}
-        style={{ minHeight: `${rows * 1.5}rem` }}
-        rows={rows}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        spellCheck={false}
-      />
+      <div style={{ height: `${rows * 1.5}rem` }}>
+        <CodeEditor language={language} value={value} onChange={onChange} placeholder={placeholder} />
+      </div>
     </div>
   );
 }
@@ -164,15 +175,45 @@ export function ConverterPanel({ onResult }: Props) {
   const [source, setSource] = useState("");
   const [mvc, setMvc] = useState<MvcSources>(EMPTY_MVC);
   const [showSamples, setShowSamples] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [lastResult, setLastResult] = useState<ConvertResult | null>(null);
   const [savedOk, setSavedOk] = useState(false);
 
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, []);
+
   const convertMutation = useMutation({
     mutationFn: (payload: ConvertRequest) => convertWidget(payload),
-    onSuccess: (result) => {
+    // `variables` is the exact payload submitted to /api/parse-widget — read the
+    // sources from there (not from component state) so a history entry can't
+    // capture source text the user edited while the request was in flight.
+    onSuccess: (result, variables) => {
       setLastResult(result);
       onResult(result);
       setSavedOk(false);
+      setHistory(
+        addHistoryEntry(
+          variables.sourceType === "mvc"
+            ? {
+                sourceType: variables.sourceType,
+                source: "",
+                mvc: {
+                  controller: variables.mvcController ?? "",
+                  model: variables.mvcModel ?? "",
+                  iface: variables.mvcInterface ?? "",
+                  view: variables.mvcView ?? "",
+                },
+                result,
+              }
+            : {
+                sourceType: variables.sourceType,
+                source: variables.csharpSource ?? variables.razorSource ?? "",
+                result,
+              }
+        )
+      );
     },
   });
 
@@ -216,6 +257,27 @@ export function ConverterPanel({ onResult }: Props) {
   function handleTabChange(tab: SourceType) {
     setSourceType(tab);
     resetAll();
+  }
+
+  function loadFromHistory(entry: HistoryEntry) {
+    setSourceType(entry.sourceType);
+    if (entry.sourceType === "mvc" && entry.mvc) {
+      setMvc(entry.mvc);
+      setSource("");
+    } else {
+      setSource(entry.source);
+      setMvc(EMPTY_MVC);
+    }
+    convertMutation.reset();
+    setLastResult(entry.result);
+    onResult(entry.result);
+    setSavedOk(false);
+    setShowHistory(false);
+  }
+
+  function deleteHistoryEntry(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    setHistory(removeHistoryEntry(id));
   }
 
   const hasAnyInput =
@@ -262,14 +324,70 @@ export function ConverterPanel({ onResult }: Props) {
             ? "Paste each file into its own field"
             : "Paste the C# ViewModel or Model class"}
         </p>
-        <button
-          onClick={() => setShowSamples((s) => !s)}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 border border-border rounded-md"
-        >
-          Samples
-          {showSamples ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setShowHistory((s) => !s);
+              setShowSamples(false);
+            }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 border border-border rounded-md"
+          >
+            <Clock className="w-3 h-3" />
+            History
+            {history.length > 0 && (
+              <span className="text-[10px] text-muted-foreground/70">({history.length})</span>
+            )}
+          </button>
+          <button
+            onClick={() => {
+              setShowSamples((s) => !s);
+              setShowHistory(false);
+            }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 border border-border rounded-md"
+          >
+            Samples
+            {showSamples ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+        </div>
       </div>
+
+      {showHistory && (
+        <div className="rounded-lg border border-border bg-muted/40 divide-y divide-border max-h-64 overflow-y-auto">
+          {history.length === 0 ? (
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              No conversions yet — successful conversions show up here.
+            </p>
+          ) : (
+            history.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => loadFromHistory(entry)}
+                className="w-full flex items-center justify-between gap-3 text-left px-4 py-2.5 text-sm hover:bg-muted transition-colors"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{entry.result.schema.widgetName}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {entry.sourceType === "viewmodel"
+                      ? "ViewModel"
+                      : entry.sourceType === "cshtml"
+                      ? "Razor"
+                      : "MVC"}{" "}
+                    · {formatRelativeTime(entry.timestamp)}
+                  </span>
+                </span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => deleteHistoryEntry(entry.id, e)}
+                  className="flex-shrink-0 p-1 text-muted-foreground/60 hover:text-destructive transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       {showSamples && (
         <div className="rounded-lg border border-border bg-muted/40 divide-y divide-border">
@@ -308,6 +426,7 @@ export function ConverterPanel({ onResult }: Props) {
             label="Controller (.cs)"
             required
             rows={10}
+            language="csharp"
             value={mvc.controller}
             onChange={(v) => setMvc((m) => ({ ...m, controller: v }))}
             placeholder={`[ControllerToolboxItem(Name = "Author", Title = "Author", SectionName = "Feather samples")]\npublic class AuthorController : Controller\n{\n    [TypeConverter(typeof(ExpandableObjectConverter))]\n    public AuthorModel Model { get; }\n}`}
@@ -317,6 +436,7 @@ export function ConverterPanel({ onResult }: Props) {
             hint={modelRequired ? "controller uses [TypeConverter]" : "not needed — props are on the controller"}
             required={modelRequired}
             rows={8}
+            language="csharp"
             value={mvc.model}
             onChange={(v) => setMvc((m) => ({ ...m, model: v }))}
             placeholder={`public class AuthorModel\n{\n    public Guid ImageId { get; set; }\n    public string ImageProviderName { get; set; }\n    public string Name { get; set; }\n}`}
@@ -326,6 +446,7 @@ export function ConverterPanel({ onResult }: Props) {
             hint="properties are additive"
             required={false}
             rows={5}
+            language="csharp"
             value={mvc.iface}
             onChange={(v) => setMvc((m) => ({ ...m, iface: v }))}
             placeholder={`public interface IAuthorModel\n{\n    string TwitterHandle { get; set; }\n}`}
@@ -335,19 +456,21 @@ export function ConverterPanel({ onResult }: Props) {
             hint="accepted, not yet parsed"
             required={false}
             rows={5}
+            language="html"
             value={mvc.view}
             onChange={(v) => setMvc((m) => ({ ...m, view: v }))}
             placeholder={`@model AuthorWidget.MVC.Models.Author.AuthorViewModel\n\n<div class="author">@Model.Name</div>`}
           />
         </div>
       ) : (
-        <textarea
-          className="flex-1 font-mono text-xs bg-muted/30 border border-border rounded-lg p-4 resize-none focus:outline-none focus:ring-2 focus:ring-ring min-h-[360px]"
-          placeholder={placeholder}
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          spellCheck={false}
-        />
+        <div className="flex-1 min-h-[360px]">
+          <CodeEditor
+            language={sourceType === "cshtml" ? "html" : "csharp"}
+            value={source}
+            onChange={setSource}
+            placeholder={placeholder}
+          />
+        </div>
       )}
 
       {/* Error */}
