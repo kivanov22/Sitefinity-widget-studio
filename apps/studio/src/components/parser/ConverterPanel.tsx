@@ -18,6 +18,8 @@ import {
   MVC_AUTHOR_INTERFACE_SAMPLE,
   MVC_CUSTOM_IMAGE_CONTROLLER_SAMPLE,
   MVC_CUSTOM_IMAGE_MODEL_SAMPLE,
+  MVC_SINGLE_DYNAMIC_CONTENT_CONTROLLER_SAMPLE,
+  MVC_SINGLE_DYNAMIC_CONTENT_MODEL_SAMPLE,
   MVC_SIMPLE_CONTENT_BLOCK_SAMPLE,
   MVC_LIST_WIDGET_SAMPLE,
 } from "@/lib/samples";
@@ -117,6 +119,13 @@ const MVC_SAMPLES: { label: string; sources: Partial<MvcSources> }[] = [
     sources: {
       controller: MVC_CUSTOM_IMAGE_CONTROLLER_SAMPLE,
       model: MVC_CUSTOM_IMAGE_MODEL_SAMPLE,
+    },
+  },
+  {
+    label: "Single Dynamic Content (SelectedItemId + ItemType on controller)",
+    sources: {
+      controller: MVC_SINGLE_DYNAMIC_CONTENT_CONTROLLER_SAMPLE,
+      model: MVC_SINGLE_DYNAMIC_CONTENT_MODEL_SAMPLE,
     },
   },
   {

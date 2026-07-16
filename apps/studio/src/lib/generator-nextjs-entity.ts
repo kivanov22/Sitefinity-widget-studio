@@ -37,7 +37,8 @@ function isResolvedEnum(prop: WidgetProperty): boolean {
 }
 
 function getTsType(prop: WidgetProperty): string {
-  if (prop.renderHint === "image") return "MixedContentContext | null";
+  if (prop.renderHint === "image" || prop.renderHint === "content-reference")
+    return "MixedContentContext | null";
   // Only reference the TS enum type when we actually emit that enum above the class.
   // An unresolved enum falls back to `string | null` so the file still compiles.
   if (isResolvedEnum(prop)) return `${prop.enumTypeName} | null`;
@@ -55,7 +56,7 @@ function getTsType(prop: WidgetProperty): string {
 /** TypeScript field initializer — @DefaultValue handles the runtime default;
  *  this initializer is just for TypeScript type safety. */
 function getTsInit(prop: WidgetProperty): string {
-  if (prop.renderHint === "image") return "= null";
+  if (prop.renderHint === "image" || prop.renderHint === "content-reference") return "= null";
   if (prop.renderHint === "choice") return "= null";
   switch (prop.type) {
     case "number":  return "= 0";
@@ -162,6 +163,22 @@ export function generateEntityFile(
       imports.add("KnownContentTypes");
       imports.add("MixedContentContext");
       decorators.push(`  @Content({ Type: KnownContentTypes.Images })`);
+    } else if (prop.renderHint === "content-reference") {
+      imports.add("MixedContentContext");
+      if (prop.contentItemType) {
+        imports.add("Content");
+        const escaped = prop.contentItemType.replace(/'/g, "\\'");
+        decorators.push(`  @Content({ Type: '${escaped}' })`);
+      } else {
+        // ItemType wasn't resolvable from the pasted source (e.g. the controller
+        // pane wasn't provided) — referencing an empty Type would compile but pick
+        // the wrong content, so leave the decorator commented out like the
+        // unresolved-enum case below.
+        decorators.push(
+          `  // TODO: set the dynamic content type name (e.g. 'Telerik.Sitefinity.DynamicTypes.Model.X.Y')`,
+          `  // @Content({ Type: 'TODO' })`
+        );
+      }
     } else if (isResolvedEnum(prop)) {
       // Enum whose declaration we found — emit the enum + choices array above the
       // class and wire the decorators to it.

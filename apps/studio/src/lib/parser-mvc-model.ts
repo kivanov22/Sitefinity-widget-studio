@@ -8,6 +8,13 @@
  *
  * Special detection rules (from mvc-samples-master reference analysis):
  *   - Guid XId + string XProviderName pair → ONE image property (MixedContentContext)
+ *   - SelectedItemId + a single ORM-typed sibling (DynamicContent, etc.) → ONE
+ *     content-reference property (MixedContentContext), named after the ORM-typed
+ *     sibling. `ItemType` (the dynamic module's type-name filter) typically lives on
+ *     the CONTROLLER, not the Model (see SingleDynamicContentController.cs) — read via
+ *     `controllerSource`'s backing-field defaults, not from the Model's own properties.
+ *     Ambiguous case (more than one ORM-typed sibling) is left uncollapsed on purpose —
+ *     guessing which one pairs with SelectedItemId would be a silent correctness bug.
  *   - [DynamicLinksContainer] on string → renderHint: "html"
  *   - string with JSON-array backing field default → type: "string[]"
  *   - Known enum type (definition in same source blob) → renderHint: "choice"
@@ -438,6 +445,13 @@ export interface ParseMvcModelOptions {
    * (e.g. ListWidget declares `ListMode` alongside its controller).
    */
   searchSource?: string;
+  /**
+   * The raw Controller .cs pane. Needed specifically for the SelectedItemId +
+   * ORM-type content-reference pattern: `ItemType` (the dynamic module's type-name
+   * filter) lives on the Controller, not the Model, in the real reference sample
+   * (SingleDynamicContentController.cs). Read via its backing-field default.
+   */
+  controllerSource?: string;
 }
 
 /**
@@ -456,6 +470,7 @@ export function parseMvcModelClass(options: ParseMvcModelOptions): WidgetSchema 
     mvcMetadata,
     interfaceSource,
     searchSource,
+    controllerSource,
   } = options;
 
   const enumSearch = searchSource ?? modelSource;
@@ -498,9 +513,49 @@ export function parseMvcModelClass(options: ParseMvcModelOptions): WidgetSchema 
     }
   }
 
+  // --- Content-reference pair detection ---
+  // SelectedItemId (string) + exactly one ORM-typed sibling (DynamicContent, etc.)
+  // → ONE content-reference property, named after the ORM-typed sibling (e.g. "Item",
+  // not "SelectedItemId" — that's the id-storage implementation detail, the ORM prop
+  // is what a developer would actually reference). ItemType lives on the Controller
+  // in the real reference sample, not the Model, so it's read from `controllerSource`.
+  //
+  // Ambiguity guard: if more than one ORM-typed sibling exists, don't guess which one
+  // pairs with SelectedItemId — leave everything alone rather than silently picking.
+  const contentRefEmit = new Map<string, string | undefined>(); // ormPropName -> contentItemType
+  const contentRefDrop = new Set<string>(); // e.g. "SelectedItemId"
+
+  const selectedItemIdProp = rawPropMap.get("SelectedItemId");
+  if (selectedItemIdProp) {
+    const ormSiblings = rawProps.filter(
+      (p) => p.name !== "SelectedItemId" && isKnownOrmType(p.csType)
+    );
+    if (ormSiblings.length === 1) {
+      const itemTypeDefault = controllerSource
+        ? extractBackingFieldDefaults(controllerSource).get("itemType")
+        : undefined;
+      contentRefDrop.add("SelectedItemId");
+      contentRefEmit.set(ormSiblings[0].name, itemTypeDefault);
+    }
+  }
+
   const properties: WidgetProperty[] = [];
 
   for (const raw of rawProps) {
+    if (contentRefDrop.has(raw.name)) continue; // SelectedItemId — folded into the ORM prop below
+
+    if (contentRefEmit.has(raw.name)) {
+      properties.push({
+        name: raw.name,
+        camelName: toCamelCase(raw.name),
+        type: "object",
+        renderHint: "content-reference",
+        isNullable: true,
+        contentItemType: contentRefEmit.get(raw.name),
+      });
+      continue;
+    }
+
     if (consumed.has(raw.name)) {
       // Was a ProviderName companion — insert the image pair property at the
       // position of the original Guid XId property

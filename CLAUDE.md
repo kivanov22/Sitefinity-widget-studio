@@ -94,7 +94,7 @@ nothing calls it. Safe to delete in a future cleanup pass. The active generators
 | `src/lib/parser-razor.ts` | Parses Sitefinity `.cshtml` Razor views. Extracts `@model`, all `Model.X` usages, nested object shapes (Image/Video), `Html.Raw` → `renderHint: "html"`, `Html.PartialAsync` dependencies, `data-aos` detection. |
 | `src/lib/enum-extractor.ts` | **(Day 4 Part 3)** Shared C# enum extraction used by both `parser-csharp.ts` and `parser-mvc-model.ts`. Detects plain vs `[Flags]` enums (single-line and multi-line forms), returns member names in declaration order. Also exports `isKnownOrmType` so `DynamicContent`/`SdkItem`/etc. aren't mistaken for enums. |
 | `src/lib/parser-mvc-controller.ts` | **(Day 3 Part B, Day 4 Part 2)** Parses MVC Controller `.cs`. Finds `[ControllerToolboxItem(Name, Title, SectionName)]`. Finds `[TypeConverter(typeof(ExpandableObjectConverter))]` property → extracts nested Model class name. **Fallback:** if no `[TypeConverter]`, parses controller's own properties directly (SimpleContentBlock pattern). Stores original toolbox `Name` as `widgetKey` — see critical note below. Now accepts the four-pane input (controller/model/interface/view) from `ConverterPanel.tsx`. |
-| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B, Day 4 Part 2+3)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + `ItemType` pairs → content-reference property. Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum via shared `enum-extractor.ts`. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. Merges additive properties from an optional TS interface pane. |
+| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B, Day 4 Part 2+3, Day 5)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + exactly one ORM-typed sibling → ONE `content-reference` property (see critical note below — `ItemType` is read from the controller pane, not the model). Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum via shared `enum-extractor.ts`. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. Merges additive properties from an optional TS interface pane. |
 | `src/lib/generator-nextjs-entity.ts` | **(Day 3 Part A)** `WidgetSchema` → TypeScript class with `@WidgetEntity`, `@DisplayName`, `@Description`, `@ContentSection`, `@DefaultValue`, `@Content`/`@DataType` decorators. `renderHint === "image"` → `MixedContentContext \| null` + `@Content({Type: KnownContentTypes.Images})` — always, regardless of original source type. |
 | `src/lib/generator-nextjs-component.ts` | **(Day 3 Part A, fixed Day 4 Part 1)** `WidgetSchema` → function component. Always includes `const dataAttributes = htmlAttributes(props)` spread on root. Props accessed as `props.model.Properties.X`. `renderHint === "html"` → `dangerouslySetInnerHTML`. `renderHint === "image"` → honest TODO comment (needs real async REST fetch) — previously this silently rendered a fake `<img src=...>`, now fixed. Handles `renderHint === "choice"` and `type === "string[]"` cases. |
 | `src/lib/generator-widget-registry-entry.ts` | **(Day 3 Part A+B)** Registry snippet. Uses `schema.widgetKey ?? widgetName` as the dictionary key — original toolbox name takes priority over sanitized identifier. See critical note below. |
@@ -162,6 +162,53 @@ so the closing brace never returned to 0, consuming the rest of the file).
 three of its properties (`ListTitle`, `ListType`, `ListItems`). If this bug ever
 regresses, converting that sample will show only `ListTitle` in the output instead of
 all three — that sample IS the regression test until a real test suite exists.
+
+---
+
+## CRITICAL — SelectedItemId + ItemType content-reference collapsing (Day 5)
+
+`SingleDynamicContentModel.cs` in the reference project revealed the real pattern is
+architecturally different from the Guid+ProviderName image pair: `SelectedItemId` lives
+on the **Model**, but `ItemType` (the dynamic module's full .NET type name, e.g.
+`Telerik.Sitefinity.DynamicTypes.Model.Athletes.Athlete`) lives on the **Controller**,
+set via `Model.Populate(this.ItemType)` in the controller's `Index()` action — not a
+get/set pairing on one class like the image case.
+
+**Detection rule:** trigger only on the literal property name `SelectedItemId` (not a
+generalized stem, unlike `XId`/`XProviderName` — this pattern has one confirmed
+real-world shape) paired with exactly one sibling property on the same Model whose C#
+type is a known ORM type (`isKnownOrmType` from `enum-extractor.ts`, e.g. `DynamicContent`).
+**Ambiguity guard:** if more than one ORM-typed sibling exists, don't collapse — leave
+everything alone rather than silently guessing which one pairs with `SelectedItemId`.
+Verified: a synthetic two-ORM-sibling Model correctly leaves all three properties
+uncollapsed.
+
+**Naming:** the collapsed property is named after the ORM-typed sibling (e.g. `Item`),
+not `SelectedItemId` — `Item` is what a developer would actually reference in the
+generated component; `SelectedItemId` is just the id-storage implementation detail.
+
+**Data flow:** `parseMvcModelClass` (`parser-mvc-model.ts`) now takes an optional
+`controllerSource` (threaded through from `parser-mvc-controller.ts`, which already
+had it) and reads `ItemType`'s value via the existing `extractBackingFieldDefaults()`
+helper against the controller pane — no new extraction code needed.
+
+**Static config, not a designer field:** the resolved `ItemType` value is baked directly
+into `@Content({ Type: '<value>' })` on the entity (new `content-reference` `RenderHint`
++ `WidgetProperty.contentItemType`), not exposed as a separate editable property. In the
+real MVC widget designer, only the `[TypeConverter(ExpandableObjectConverter)]`-decorated
+`Model` property is reflected into the editable property grid — plain controller
+properties like `ItemType` were never editor-facing; a developer wanting a different
+type writes a different controller. Matches how the image case already bakes
+`KnownContentTypes.Images` as a fixed `Type`, not a runtime-editable field.
+
+**Component generator:** emits an honest TODO comment (same philosophy as the `video`
+renderHint), not a full REST fetch implementation — unlike the `image` case, which
+does implement a real `RestClient.getItems` fetch, there's no well-known `RestSdkTypes`
+member for arbitrary dynamic module types, so wiring the real fetch is left to the
+developer with the type name and pattern-reference already in the TODO.
+
+**Regression sample:** `MVC_SINGLE_DYNAMIC_CONTENT_CONTROLLER_SAMPLE` / `_MODEL_SAMPLE`
+in `samples.ts`, wired into `ConverterPanel.tsx`'s MVC samples list.
 
 ---
 
@@ -312,8 +359,13 @@ Supported: `@model`, `Model.X`/`Model.X?.Y`, `Html.Raw` → `"html"`, `PartialAs
 Not supported: MVC Razor syntax (`@Html.ActionLink`, `@Html.EditorFor`, `@Url.Action`) — deferred, may not be needed since MVC designer metadata lives on controller/model, not the view.
 
 ### parser-mvc-controller.ts + parser-mvc-model.ts
-Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum via shared `enum-extractor.ts`, JSON-array string, all three C# property syntax forms (A/B/C), **(Day 4)** four-pane input with additive interface-pane merging.
-Not yet verified: `SelectedItemId` + `ItemType` pair collapsing (logic is in parser but not tested against `SingleDynamicContent` explicitly), `DynamicContent` direct type detection.
+Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum via shared `enum-extractor.ts`, JSON-array string, all three C# property syntax forms (A/B/C), **(Day 4)** four-pane input with additive interface-pane merging, **(Day 5)** `SelectedItemId` + ORM-typed sibling → `content-reference` collapsing (see below).
+Not yet supported: `DynamicContent` direct type detection outside the `SelectedItemId` pairing.
+
+**Correction (Day 5):** earlier versions of this file claimed `SelectedItemId` + `ItemType`
+collapsing was "in the parser but not tested" — that was wrong, the logic did not exist
+at all (confirmed by grepping the codebase for both names — zero matches). It's now
+implemented; see "CRITICAL — SelectedItemId + ItemType content-reference collapsing" below.
 
 ---
 
@@ -325,6 +377,7 @@ Not yet verified: `SelectedItemId` + `ItemType` pair collapsing (logic is in par
 | `MVC_CUSTOM_IMAGE_WIDGET_SAMPLE` | Guid+ProviderName only; toolbox Name ≠ clean identifier | `widgetKey` vs `widgetName` fix |
 | `MVC_SIMPLE_CONTENT_BLOCK_SAMPLE` | No `[TypeConverter]`, props on controller directly | Fallback parse path |
 | `MVC_LIST_WIDGET_SAMPLE` | Enum, `[Flags]` enum, JSON-array string, **Form C properties** | Form C depth-counter bug regression |
+| `MVC_SINGLE_DYNAMIC_CONTENT_SAMPLE` | `SelectedItemId` + `ItemType` (controller-side) content-reference collapsing | Collapsing logic + the controller/model split, added Day 5 |
 
 ---
 
@@ -355,30 +408,38 @@ Version bumps: patch = bug fix, minor = feature complete, major = v1.0 Marketpla
 
 ---
 
-## What to build next (Day 5)
+## Day 5 — STATUS: IN PROGRESS
 
 **Branch:** `feature/day5-monaco-history-preview`
 
-Priority order:
-1. **Monaco Editor integration** (carried over from Day 4's original plan —
-   not started yet). Replace the `<textarea>` inputs in `ConverterPanel.tsx`
-   (all four MVC panes included) with `@monaco-editor/react` — already
-   installed, not yet wired up. C#/MVC panes → C# language mode. Razor tab →
-   HTML language mode. Output panes in `GeneratedOutput.tsx` → TypeScript
-   read-only mode.
-2. **Widget conversion history in `localStorage`** — save each successful
-   conversion (schema + generated files), show a history sidebar in the
-   converter so a previous conversion can be reloaded without re-pasting
-   source. Natural pairing with Monaco since both touch `ConverterPanel.tsx`.
-3. **Verify `SelectedItemId` + `ItemType` pair collapsing** in
-   `parser-mvc-model.ts` against `SingleDynamicContent` — the logic exists but
-   per the "Parser behaviour" notes above it's never been exercised against
-   that specific sample. Add it as an MVC sample if it isn't already, run it
-   through, confirm it collapses to one `MixedContentContext` property.
-4. **Resolve the "Test in Demo" path decision** (see "CRITICAL — Test in Demo
-   path" above) — this is a product decision, raise it explicitly rather than
-   picking silently. Once decided, do the real end-to-end click (write a
-   widget, confirm it renders) before calling the feature done.
+Done so far:
+1. ✅ **Monaco Editor integration** — every input pane (ViewModel, Razor, all
+   four MVC panes) and the output panes in `GeneratedOutput.tsx` now run
+   through a shared `src/components/parser/CodeEditor.tsx` wrapper around
+   `@monaco-editor/react`. C#/MVC → C# mode, Razor/View pane → HTML mode,
+   output → TypeScript/JSON read-only. Loads from the default CDN — self-hosting
+   the worker bundle under Turbopack isn't set up, and the studio only runs
+   locally, so this is a deliberate simplification, not a gap.
+2. ✅ **Widget conversion history in `localStorage`** — `src/lib/conversion-history.ts`,
+   capped at 20 entries, built from the mutation's `variables` (not component
+   state) so an in-flight request can't get attributed to the wrong entry.
+   "History" button next to "Samples" in `ConverterPanel.tsx`.
+3. ✅ **`SelectedItemId` + `ItemType` collapsing** — see "CRITICAL —
+   SelectedItemId + ItemType content-reference collapsing" above. This turned
+   out to be a build task, not a verify task — the collapsing logic didn't
+   exist at all before Day 5 (confirmed by grep), and the real pattern splits
+   the two properties across the Controller and Model classes.
+4. **ESLint config added** — `apps/studio/eslint.config.mjs` (flat config,
+   `next/core-web-vitals` + `next/typescript`), scoped to `apps/studio` only.
+   `next lint` had no config file and was falling into an interactive
+   first-run prompt.
+
+Explicitly deferred by user instruction (not silently skipped):
+- **"Test in Demo" path decision** — user said to ignore the Test-in-Demo
+  export and `demo-project` entirely for now and leave `demo-export.ts` as-is.
+  Do not revisit without being asked.
+
+Still open:
 5. If time remains: begin the Renderer prop-preview panel — a simple
    prop-editing UI driven by the parsed `WidgetSchema` (one input per
    property, output updates live). `react-hook-form` + `zod` are already
@@ -386,6 +447,11 @@ Priority order:
 6. Optional cleanup: delete `src/lib/widget-generator.ts` — confirmed
    orphaned by grep across two review passes now (Day 3 and Day 4), safe to
    remove.
+7. Known pre-existing bug, not caused by Day 5, discovered while verifying
+   Monaco: `ConverterPanel.tsx`'s `resetAll()` (tab switch, Clear button)
+   never calls `onResult(null)`, so `GeneratedOutput` keeps showing the last
+   successful conversion after switching source tabs. User asked to be
+   reminded about this later rather than fixed now.
 
 ---
 

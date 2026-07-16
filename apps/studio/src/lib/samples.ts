@@ -236,6 +236,89 @@ namespace CustomImageWidget.Mvc.Models
     }
 }`;
 
+export const MVC_SINGLE_DYNAMIC_CONTENT_CONTROLLER_SAMPLE = `// SingleDynamicContentController.cs — ItemType lives on the CONTROLLER, not the Model
+using System.ComponentModel;
+using System.Web.Mvc;
+using SingleDynamicContent.Mvc.Models;
+using Telerik.Sitefinity.Mvc;
+
+namespace SingleDynamicContent.Mvc.Controllers
+{
+    [ControllerToolboxItem(Name = "SingleDynamicContent", Title = "Single Dynamic Content", SectionName = "Feather samples")]
+    public class SingleDynamicContentController : Controller
+    {
+        [TypeConverter(typeof(ExpandableObjectConverter))]
+        public SingleDynamicContentModel Model
+        {
+            get
+            {
+                if (this.model == null)
+                    this.model = new SingleDynamicContentModel();
+
+                return this.model;
+            }
+        }
+
+        public string ItemType
+        {
+            get
+            {
+                return this.itemType;
+            }
+
+            set
+            {
+                this.itemType = value;
+            }
+        }
+
+        public ActionResult Index()
+        {
+            this.Model.Populate(this.ItemType);
+            return View("Default", this.Model);
+        }
+
+        private string itemType = "Telerik.Sitefinity.DynamicTypes.Model.Athletes.Athlete";
+        private SingleDynamicContentModel model;
+    }
+}`;
+
+export const MVC_SINGLE_DYNAMIC_CONTENT_MODEL_SAMPLE = `// SingleDynamicContentModel.cs
+using Telerik.Sitefinity.Data;
+
+namespace SingleDynamicContent.Mvc.Models
+{
+    public class SingleDynamicContentModel
+    {
+        public DynamicContent Item
+        {
+            get
+            {
+                return this.item;
+            }
+            set
+            {
+                this.item = value;
+            }
+        }
+
+        public string SelectedItemId
+        {
+            get
+            {
+                return this.selectedItemId;
+            }
+            set
+            {
+                this.selectedItemId = value;
+            }
+        }
+
+        private DynamicContent item;
+        private string selectedItemId;
+    }
+}`;
+
 export const MVC_SIMPLE_CONTENT_BLOCK_SAMPLE = `// SimpleContentBlockController.cs — fallback pattern: no TypeConverter, props on controller
 using System.Web.Mvc;
 using Telerik.Sitefinity.Mvc;
