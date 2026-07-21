@@ -24,3 +24,21 @@ All notable changes to Sitefinity Widget Studio.
 - Enum support
 - Full attribute extraction
 - More sample widgets
+
+## [0.5.0] — Day 5
+
+### Added
+- Monaco Editor across every input pane (ViewModel, Razor, all four MVC panes) and the read-only output panes
+- Conversion history in `localStorage` (last 20 conversions, reload input + output together)
+- ESLint flat config for `apps/studio`
+- MVC `SelectedItemId` + `ItemType` → single `content-reference` property collapsing (the real pattern splits the two properties across the Controller and Model classes)
+- Renderer prop-preview panel — live client-side render of the generated component with editable sample props (`@babel/standalone`, no bundler)
+
+### Fixed
+- Output panel no longer keeps showing a stale conversion after switching input tabs
+
+### Removed
+- Orphaned `widget-generator.ts` (superseded by the entity/component generators since v0.3)
+
+### Deferred
+- FAQ Widget `List<FaqItem>` (custom list-item type) support — moved to Day 6, not investigated in this release
