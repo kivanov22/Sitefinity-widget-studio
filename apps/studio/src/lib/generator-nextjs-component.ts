@@ -220,7 +220,13 @@ function buildJsxBody(
   }
 
   for (const prop of remaining) {
-    if (prop.renderHint === "html") {
+    if (prop.renderHint === "content-reference") {
+      const typeNote = prop.contentItemType ?? "TODO: dynamic content type name";
+      lines.push(
+        `        {/* TODO: ${prop.name} is a MixedContentContext selector (Type: ${typeNote}). */}`,
+        `        {/* Fetch server-side via RestClient.getItems — see sitefinity-data.tsx for the pattern. */}`
+      );
+    } else if (prop.renderHint === "html") {
       lines.push(
         `        {props.model.Properties.${prop.name} && (`,
         `          <div dangerouslySetInnerHTML={{ __html: props.model.Properties.${prop.name} }} />`,

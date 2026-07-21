@@ -40,7 +40,7 @@ No test suite yet. Monorepo has no root-level scripts — always operate from `a
 
 ---
 
-## Current version: v0.4.0 (Day 4 complete — image resolution fix, four-pane MVC input, shared enum extraction, demo export)
+## Current version: v0.5.0 (Day 5 complete — Monaco editor, conversion history, ESLint config, SelectedItemId/ItemType content-reference collapsing, Renderer prop-preview panel, widget-generator.ts removal, tab-switch bug fix)
 
 ### Day 4 — STATUS: COMPLETE
 
@@ -94,13 +94,14 @@ nothing calls it. Safe to delete in a future cleanup pass. The active generators
 | `src/lib/parser-razor.ts` | Parses Sitefinity `.cshtml` Razor views. Extracts `@model`, all `Model.X` usages, nested object shapes (Image/Video), `Html.Raw` → `renderHint: "html"`, `Html.PartialAsync` dependencies, `data-aos` detection. |
 | `src/lib/enum-extractor.ts` | **(Day 4 Part 3)** Shared C# enum extraction used by both `parser-csharp.ts` and `parser-mvc-model.ts`. Detects plain vs `[Flags]` enums (single-line and multi-line forms), returns member names in declaration order. Also exports `isKnownOrmType` so `DynamicContent`/`SdkItem`/etc. aren't mistaken for enums. |
 | `src/lib/parser-mvc-controller.ts` | **(Day 3 Part B, Day 4 Part 2)** Parses MVC Controller `.cs`. Finds `[ControllerToolboxItem(Name, Title, SectionName)]`. Finds `[TypeConverter(typeof(ExpandableObjectConverter))]` property → extracts nested Model class name. **Fallback:** if no `[TypeConverter]`, parses controller's own properties directly (SimpleContentBlock pattern). Stores original toolbox `Name` as `widgetKey` — see critical note below. Now accepts the four-pane input (controller/model/interface/view) from `ConverterPanel.tsx`. |
-| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B, Day 4 Part 2+3)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + `ItemType` pairs → content-reference property. Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum via shared `enum-extractor.ts`. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. Merges additive properties from an optional TS interface pane. |
+| `src/lib/parser-mvc-model.ts` | **(Day 3 Part B, Day 4 Part 2+3, Day 5)** Parses the Model class (nested or controller-direct). Collapses `Guid XId` + `string XProviderName` pairs → ONE image property. Collapses `SelectedItemId` + exactly one ORM-typed sibling → ONE `content-reference` property (see critical note below — `ItemType` is read from the controller pane, not the model). Detects `[DynamicLinksContainer]` → `renderHint: "html"`. Detects plain vs `[Flags]` enum via shared `enum-extractor.ts`. Detects JSON-array strings → `string[]`. Handles all three C# property syntax forms including multi-line brace-on-own-line (Form C) — see bug note below. Merges additive properties from an optional TS interface pane. |
 | `src/lib/generator-nextjs-entity.ts` | **(Day 3 Part A)** `WidgetSchema` → TypeScript class with `@WidgetEntity`, `@DisplayName`, `@Description`, `@ContentSection`, `@DefaultValue`, `@Content`/`@DataType` decorators. `renderHint === "image"` → `MixedContentContext \| null` + `@Content({Type: KnownContentTypes.Images})` — always, regardless of original source type. |
 | `src/lib/generator-nextjs-component.ts` | **(Day 3 Part A, fixed Day 4 Part 1)** `WidgetSchema` → function component. Always includes `const dataAttributes = htmlAttributes(props)` spread on root. Props accessed as `props.model.Properties.X`. `renderHint === "html"` → `dangerouslySetInnerHTML`. `renderHint === "image"` → honest TODO comment (needs real async REST fetch) — previously this silently rendered a fake `<img src=...>`, now fixed. Handles `renderHint === "choice"` and `type === "string[]"` cases. |
 | `src/lib/generator-widget-registry-entry.ts` | **(Day 3 Part A+B)** Registry snippet. Uses `schema.widgetKey ?? widgetName` as the dictionary key — original toolbox name takes priority over sanitized identifier. See critical note below. |
 | `src/lib/demo-export.ts` | **(Day 4 Part 4)** Filesystem side of "Test in Demo". `exportWidgetToDemo()` writes `<kebab>/<kebab>.entity.ts` + `.tsx` into a target `widgets/` folder. `patchRegistrySource()` inserts new imports + a registry entry into an existing `widget-registry.ts` — idempotent (skips already-registered keys/imports), preserves the host file's indentation style, handles `widgets: {}` on one line. Registry-key matching escapes regex metacharacters (`escapeRegExp`) before building the lookup `RegExp` — fixed after review flagged that an unescaped MVC `widgetKey` containing e.g. `(` or `.` could throw or misfire. |
-| `src/lib/widget-generator.ts` | **DEPRECATED — do not use or extend.** Confirmed orphaned (no callers). Remove in future cleanup. |
 | `src/lib/supabase.ts` | Supabase client. `saveWidget`, `listWidgets`, `getWidget`, `deleteWidget`. Returns null gracefully if env vars not set. |
+| `src/lib/conversion-history.ts` | **(Day 5)** `localStorage`-backed conversion history, capped at 20 entries. `addHistoryEntry`/`loadHistory`/`removeHistoryEntry`/`formatRelativeTime`. Entries store the raw submitted source (viewmodel/cshtml string, or the four MVC panes) plus the full `ConvertResult`, so a history entry reloads both the input and the output without re-converting. |
+| `src/lib/preview-transpile.ts` | **(Day 5)** Client-side transpile for the Preview pane. `transpileComponent()` strips imports/`export`, rewrites the one known async image-fetch shape to a direct props read, transpiles with `@babel/standalone`, and returns a callable function component via `new Function`. See "CRITICAL — Preview pane transpile approach" below. |
 | `src/lib/samples.ts` | Renderer, Razor, and MVC sample source strings for converter UI. MVC samples now split per-pane: `MVC_AUTHOR_CONTROLLER_SAMPLE` / `MVC_AUTHOR_MODEL_SAMPLE` / `MVC_AUTHOR_INTERFACE_SAMPLE`, `MVC_CUSTOM_IMAGE_CONTROLLER_SAMPLE` / `MVC_CUSTOM_IMAGE_MODEL_SAMPLE`, `MVC_SIMPLE_CONTENT_BLOCK_SAMPLE`, `MVC_LIST_WIDGET_SAMPLE`. |
 | `src/types/widget.ts` | All shared types. `WidgetSchema` now has `widgetKey?: string` (MVC original toolbox name) and `mvcMetadata?: MvcMetadata`. `SourceType` includes `"mvc"`. `ConvertRequest` now carries the four MVC panes (`mvcController`, `mvcModel`, `mvcInterface`, `mvcView`) instead of one blob. `GeneratedWidget` has `entityFile`, `componentFile`, `registryEntrySnippet` (primary v0.3) and `@deprecated` `typesFile`, `metadataFile` (v0.2, kept for backward compat). |
 | `src/app/api/parse-widget/route.ts` | POST endpoint. Routes `sourceType === "viewmodel"` → `parseWidget()`, `"cshtml"` → `parseRazorView()`, `"mvc"` → `parseMvcController()`. Calls `generateEntityFile`, `generateNextjsComponent`, `generateRegistryEntry` directly (not the deprecated `generateWidget`). |
@@ -109,8 +110,10 @@ nothing calls it. Safe to delete in a future cleanup pass. The active generators
 | `src/app/api/widgets/[id]/route.ts` | GET (single) + DELETE widget by id. |
 | `src/app/convert/page.tsx` | Split-pane converter. Left: `ConverterPanel`. Right: `GeneratedOutput`. |
 | `src/app/marketplace/page.tsx` | Grid of saved widgets. Download / delete. Shows setup instructions if Supabase not configured. |
-| `src/components/parser/ConverterPanel.tsx` | Three-tab input: "ViewModel (.cs)" \| "Razor View (.cshtml)" \| "MVC Widget". **(Day 4 Part 2)** The MVC tab is now four panes — controller (required), model (required unless the controller has no `[TypeConverter]`), interface (optional, additive props), view (optional, unused by parsers today). Convert + Save to Marketplace buttons. |
-| `src/components/parser/GeneratedOutput.tsx` | Tabs: Entity (`.entity.ts`) \| Component (`.tsx`) \| Registry Entry \| Schema. **(Day 4 Part 4)** "Test in Demo" button calls `/api/export-to-demo`; shows success (files written + registry patched) or error banners inline. |
+| `src/components/parser/ConverterPanel.tsx` | Three-tab input: "ViewModel (.cs)" \| "Razor View (.cshtml)" \| "MVC Widget". **(Day 4 Part 2)** The MVC tab is now four panes — controller (required), model (required unless the controller has no `[TypeConverter]`), interface (optional, additive props), view (optional, unused by parsers today). **(Day 5)** All input panes run through `CodeEditor.tsx` (Monaco); "History" button next to "Samples" browses/reloads past conversions via `conversion-history.ts`; `resetAll()` now calls `onResult(null)` (tab-switch bug fix, see below). Convert + Save to Marketplace buttons. |
+| `src/components/parser/CodeEditor.tsx` | **(Day 5)** Shared `@monaco-editor/react` wrapper used by every input pane and the read-only output panes. C#/HTML/TypeScript/JSON language modes, empty-state placeholder overlay (Monaco has no native placeholder support). Loads Monaco from the default CDN. |
+| `src/components/parser/PreviewPane.tsx` | **(Day 5)** The "Preview" tab's content — left: one editable control per `WidgetProperty` (text/number/toggle/select/image-URL, static notes for `content-reference`/`video`); right: the real generated component, live-rendered via `preview-transpile.ts`. Kept mounted across tab switches (see `GeneratedOutput.tsx`'s `key` below) so panel edits survive. |
+| `src/components/parser/GeneratedOutput.tsx` | Tabs: Entity (`.entity.ts`) \| Component (`.tsx`) \| Registry Entry \| Schema \| **Preview (Day 5)**. **(Day 4 Part 4)** "Test in Demo" button calls `/api/export-to-demo`; shows success (files written + registry patched) or error banners inline. **(Day 5)** Output panes run through `CodeEditor.tsx` (read-only); `PreviewPane` is keyed on `generated.componentFile.content` so a new conversion remounts it fresh while tab switches don't. |
 | `src/components/marketplace/` | `MarketplaceHeader`, `MarketplaceGrid`, `WidgetCard` components. |
 
 ---
@@ -162,6 +165,53 @@ so the closing brace never returned to 0, consuming the rest of the file).
 three of its properties (`ListTitle`, `ListType`, `ListItems`). If this bug ever
 regresses, converting that sample will show only `ListTitle` in the output instead of
 all three — that sample IS the regression test until a real test suite exists.
+
+---
+
+## CRITICAL — SelectedItemId + ItemType content-reference collapsing (Day 5)
+
+`SingleDynamicContentModel.cs` in the reference project revealed the real pattern is
+architecturally different from the Guid+ProviderName image pair: `SelectedItemId` lives
+on the **Model**, but `ItemType` (the dynamic module's full .NET type name, e.g.
+`Telerik.Sitefinity.DynamicTypes.Model.Athletes.Athlete`) lives on the **Controller**,
+set via `Model.Populate(this.ItemType)` in the controller's `Index()` action — not a
+get/set pairing on one class like the image case.
+
+**Detection rule:** trigger only on the literal property name `SelectedItemId` (not a
+generalized stem, unlike `XId`/`XProviderName` — this pattern has one confirmed
+real-world shape) paired with exactly one sibling property on the same Model whose C#
+type is a known ORM type (`isKnownOrmType` from `enum-extractor.ts`, e.g. `DynamicContent`).
+**Ambiguity guard:** if more than one ORM-typed sibling exists, don't collapse — leave
+everything alone rather than silently guessing which one pairs with `SelectedItemId`.
+Verified: a synthetic two-ORM-sibling Model correctly leaves all three properties
+uncollapsed.
+
+**Naming:** the collapsed property is named after the ORM-typed sibling (e.g. `Item`),
+not `SelectedItemId` — `Item` is what a developer would actually reference in the
+generated component; `SelectedItemId` is just the id-storage implementation detail.
+
+**Data flow:** `parseMvcModelClass` (`parser-mvc-model.ts`) now takes an optional
+`controllerSource` (threaded through from `parser-mvc-controller.ts`, which already
+had it) and reads `ItemType`'s value via the existing `extractBackingFieldDefaults()`
+helper against the controller pane — no new extraction code needed.
+
+**Static config, not a designer field:** the resolved `ItemType` value is baked directly
+into `@Content({ Type: '<value>' })` on the entity (new `content-reference` `RenderHint`
++ `WidgetProperty.contentItemType`), not exposed as a separate editable property. In the
+real MVC widget designer, only the `[TypeConverter(ExpandableObjectConverter)]`-decorated
+`Model` property is reflected into the editable property grid — plain controller
+properties like `ItemType` were never editor-facing; a developer wanting a different
+type writes a different controller. Matches how the image case already bakes
+`KnownContentTypes.Images` as a fixed `Type`, not a runtime-editable field.
+
+**Component generator:** emits an honest TODO comment (same philosophy as the `video`
+renderHint), not a full REST fetch implementation — unlike the `image` case, which
+does implement a real `RestClient.getItems` fetch, there's no well-known `RestSdkTypes`
+member for arbitrary dynamic module types, so wiring the real fetch is left to the
+developer with the type name and pattern-reference already in the TODO.
+
+**Regression sample:** `MVC_SINGLE_DYNAMIC_CONTENT_CONTROLLER_SAMPLE` / `_MODEL_SAMPLE`
+in `samples.ts`, wired into `ConverterPanel.tsx`'s MVC samples list.
 
 ---
 
@@ -312,8 +362,13 @@ Supported: `@model`, `Model.X`/`Model.X?.Y`, `Html.Raw` → `"html"`, `PartialAs
 Not supported: MVC Razor syntax (`@Html.ActionLink`, `@Html.EditorFor`, `@Url.Action`) — deferred, may not be needed since MVC designer metadata lives on controller/model, not the view.
 
 ### parser-mvc-controller.ts + parser-mvc-model.ts
-Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum via shared `enum-extractor.ts`, JSON-array string, all three C# property syntax forms (A/B/C), **(Day 4)** four-pane input with additive interface-pane merging.
-Not yet verified: `SelectedItemId` + `ItemType` pair collapsing (logic is in parser but not tested against `SingleDynamicContent` explicitly), `DynamicContent` direct type detection.
+Supported: `[ControllerToolboxItem]`, `[TypeConverter(ExpandableObjectConverter)]` nested Model unwrap, fallback to controller-direct props, Guid+ProviderName image pair collapsing, `[DynamicLinksContainer]`, plain + `[Flags]` enum via shared `enum-extractor.ts`, JSON-array string, all three C# property syntax forms (A/B/C), **(Day 4)** four-pane input with additive interface-pane merging, **(Day 5)** `SelectedItemId` + ORM-typed sibling → `content-reference` collapsing (see below).
+Not yet supported: `DynamicContent` direct type detection outside the `SelectedItemId` pairing.
+
+**Correction (Day 5):** earlier versions of this file claimed `SelectedItemId` + `ItemType`
+collapsing was "in the parser but not tested" — that was wrong, the logic did not exist
+at all (confirmed by grepping the codebase for both names — zero matches). It's now
+implemented; see "CRITICAL — SelectedItemId + ItemType content-reference collapsing" below.
 
 ---
 
@@ -325,6 +380,7 @@ Not yet verified: `SelectedItemId` + `ItemType` pair collapsing (logic is in par
 | `MVC_CUSTOM_IMAGE_WIDGET_SAMPLE` | Guid+ProviderName only; toolbox Name ≠ clean identifier | `widgetKey` vs `widgetName` fix |
 | `MVC_SIMPLE_CONTENT_BLOCK_SAMPLE` | No `[TypeConverter]`, props on controller directly | Fallback parse path |
 | `MVC_LIST_WIDGET_SAMPLE` | Enum, `[Flags]` enum, JSON-array string, **Form C properties** | Form C depth-counter bug regression |
+| `MVC_SINGLE_DYNAMIC_CONTENT_SAMPLE` | `SelectedItemId` + `ItemType` (controller-side) content-reference collapsing | Collapsing logic + the controller/model split, added Day 5 |
 
 ---
 
@@ -338,7 +394,7 @@ feature/dayN-description      ← one branch per day/feature
 ```bash
 # Start a new day
 git checkout main
-git checkout -b feature/day5-description
+git checkout -b feature/day6-description
 
 # Commit during work
 git add -A
@@ -346,8 +402,8 @@ git commit -m "feat: description"
 
 # End of day — merge + tag
 git checkout main
-git merge --no-ff feature/day5-description -m "merge: Day 5"
-git tag v0.5.0
+git merge --no-ff feature/day6-description -m "merge: Day 6"
+git tag v0.6.0
 ```
 
 Commit prefixes: `feat:` `fix:` `refactor:` `chore:` `docs:`
@@ -355,37 +411,99 @@ Version bumps: patch = bug fix, minor = feature complete, major = v1.0 Marketpla
 
 ---
 
-## What to build next (Day 5)
+## Day 5 — STATUS: COMPLETE
 
 **Branch:** `feature/day5-monaco-history-preview`
 
-Priority order:
-1. **Monaco Editor integration** (carried over from Day 4's original plan —
-   not started yet). Replace the `<textarea>` inputs in `ConverterPanel.tsx`
-   (all four MVC panes included) with `@monaco-editor/react` — already
-   installed, not yet wired up. C#/MVC panes → C# language mode. Razor tab →
-   HTML language mode. Output panes in `GeneratedOutput.tsx` → TypeScript
-   read-only mode.
-2. **Widget conversion history in `localStorage`** — save each successful
-   conversion (schema + generated files), show a history sidebar in the
-   converter so a previous conversion can be reloaded without re-pasting
-   source. Natural pairing with Monaco since both touch `ConverterPanel.tsx`.
-3. **Verify `SelectedItemId` + `ItemType` pair collapsing** in
-   `parser-mvc-model.ts` against `SingleDynamicContent` — the logic exists but
-   per the "Parser behaviour" notes above it's never been exercised against
-   that specific sample. Add it as an MVC sample if it isn't already, run it
-   through, confirm it collapses to one `MixedContentContext` property.
-4. **Resolve the "Test in Demo" path decision** (see "CRITICAL — Test in Demo
-   path" above) — this is a product decision, raise it explicitly rather than
-   picking silently. Once decided, do the real end-to-end click (write a
-   widget, confirm it renders) before calling the feature done.
-5. If time remains: begin the Renderer prop-preview panel — a simple
-   prop-editing UI driven by the parsed `WidgetSchema` (one input per
-   property, output updates live). `react-hook-form` + `zod` are already
-   installed for this.
-6. Optional cleanup: delete `src/lib/widget-generator.ts` — confirmed
-   orphaned by grep across two review passes now (Day 3 and Day 4), safe to
-   remove.
+1. ✅ **Monaco Editor integration** — every input pane (ViewModel, Razor, all
+   four MVC panes) and the output panes in `GeneratedOutput.tsx` now run
+   through a shared `src/components/parser/CodeEditor.tsx` wrapper around
+   `@monaco-editor/react`. C#/MVC → C# mode, Razor/View pane → HTML mode,
+   output → TypeScript/JSON read-only. Loads from the default CDN — self-hosting
+   the worker bundle under Turbopack isn't set up, and the studio only runs
+   locally, so this is a deliberate simplification, not a gap.
+2. ✅ **Widget conversion history in `localStorage`** — `src/lib/conversion-history.ts`,
+   capped at 20 entries, built from the mutation's `variables` (not component
+   state) so an in-flight request can't get attributed to the wrong entry.
+   "History" button next to "Samples" in `ConverterPanel.tsx`.
+3. ✅ **`SelectedItemId` + `ItemType` collapsing** — see "CRITICAL —
+   SelectedItemId + ItemType content-reference collapsing" above. This turned
+   out to be a build task, not a verify task — the collapsing logic didn't
+   exist at all before Day 5 (confirmed by grep), and the real pattern splits
+   the two properties across the Controller and Model classes.
+4. ✅ **ESLint config added** — `apps/studio/eslint.config.mjs` (flat config,
+   `next/core-web-vitals` + `next/typescript`), scoped to `apps/studio` only.
+   `next lint` had no config file and was falling into an interactive
+   first-run prompt.
+5. ✅ **Renderer prop-preview panel** — new "Preview" tab in `GeneratedOutput.tsx`.
+   See "CRITICAL — Preview pane transpile approach" below for the full design;
+   in short, `src/lib/preview-transpile.ts` uses `@babel/standalone` (new
+   dependency — neither it nor `react-live` was already installed;
+   `@codesandbox/sandpack-react` *is* installed but its iframe/bundler
+   architecture didn't fit) to transpile the real generated `.tsx` string
+   client-side and render it with editable sample props from `schema.properties`.
+   Deviates from the original plan of using `react-hook-form` + `zod` for the
+   prop panel — plain controlled inputs turned out to be simpler for this
+   shape (one input per `WidgetProperty`, no validation/submission needed).
+6. ✅ **Removed `src/lib/widget-generator.ts`** — confirmed orphaned by grep
+   across three review passes now (Day 3, Day 4, Day 5); zero imports anywhere
+   in `apps/studio`. The `@studio/widget-generator` string in `next.config.ts`'s
+   `transpilePackages` is an unrelated future monorepo package placeholder, not
+   a reference to this file.
+7. ✅ **Fixed the tab-switch bug** (previously tracked as a known, deferred
+   issue) — `ConverterPanel.tsx`'s `resetAll()` now calls `onResult(null)`,
+   so `GeneratedOutput` (all panes, including the new Preview pane) correctly
+   clears instead of showing a stale conversion after switching source tabs
+   or clicking Clear. Fixed as a side effect of wiring in the Preview pane,
+   per explicit instruction to fix it for all panes if found, not just the
+   new one.
+
+Explicitly deferred by user instruction (not silently skipped):
+- **"Test in Demo" path decision** — user said to ignore the Test-in-Demo
+  export and `demo-project` entirely for now and leave `demo-export.ts` as-is.
+  Do not revisit without being asked.
+- **FAQ Widget `List<FaqItem>` (custom list-item type) support** — surfaced
+  during Day 5 exploration, explicitly deferred to Day 6. Not investigated or
+  touched in the Day 5 commit.
+
+---
+
+## CRITICAL — Preview pane transpile approach (Day 5)
+
+`PreviewPane.tsx` renders the *actual* generated `.tsx` component string —
+not a re-implementation — so the preview can't drift from what's really
+generated. `src/lib/preview-transpile.ts` does this with no bundler:
+
+1. Strip all `import` lines (their module specifiers — `@progress/sitefinity-nextjs-sdk`,
+   the entity file — don't resolve outside a real bundler) and the `export`
+   keyword (ESM syntax `new Function` can't run).
+2. If the component is `async` (only true when it has an image property, per
+   Day 4 Part 1's `buildImageFetches`), statically rewrite that one known
+   fetch-block shape to a direct `props.model.Properties.<prop>` read, then
+   drop `async`. Anything else with `await` is left alone on purpose — it
+   fails to transpile/run and surfaces as an honest preview error rather than
+   a silent mis-render, since only this one shape is recognized.
+3. Transpile with `@babel/standalone` (`react` + `typescript` presets), then
+   `new Function("React", "htmlAttributes", ...)` to get a callable component.
+   `htmlAttributes` is mocked as a no-op (meaningless outside a real Sitefinity
+   page-editor context); `React` is the app's real React instance.
+
+This keeps the transpile step (rare — only runs when the generated source
+changes) fully decoupled from prop-panel edits (frequent — every keystroke):
+the image mock is injected as a *value* at render time, never baked into the
+transpiled source string, so editing a sample image URL never re-transpiles.
+
+**A real bug this surfaced and fixed:** converting a second, differently-shaped
+widget while the Preview tab was already open threw React's "changing an
+uncontrolled input to be controlled" warning. Root cause: `GeneratedOutput.tsx`
+keeps `PreviewPane` mounted across tab switches (so its panel edits survive),
+but a `useEffect` resetting panel state on a new `componentSource` runs *after*
+render — one frame had the old widget's property keys while `schema.properties`
+already reflected the new widget. Fixed by keying `PreviewPane` on
+`generated.componentFile.content` in `GeneratedOutput.tsx` instead: a genuinely
+new conversion fully remounts it (fresh `useState` initializer, no stale-keys
+frame), while tab switches — which don't change that key — still preserve
+state. The effect was removed entirely, not patched.
 
 ---
 
@@ -414,11 +532,10 @@ packages/metadata-engine/   packages/widget-registry/    packages/visual-builder
 
 | Package | Planned use |
 |---------|-------------|
-| `@monaco-editor/react` + `monaco-editor` | **Day 5** — replace textarea |
 | `ts-morph` | AST-based parser upgrade (replaces regex) |
-| `@codesandbox/sandpack-react` | Preview Studio iframe |
+| `@codesandbox/sandpack-react` | Considered for the Day 5 Preview pane, not used — its iframe/bundler architecture didn't fit the strip-async-and-mock-props design; `@babel/standalone` (new Day 5 dependency) was used instead. See "CRITICAL — Preview pane transpile approach." Still available if a real bundled sandbox is ever wanted. |
 | `@dnd-kit/core` + sortable + utilities | Visual Builder canvas |
-| `react-hook-form` + `@hookform/resolvers` + `zod` | Prop editor forms |
+| `react-hook-form` + `@hookform/resolvers` + `zod` | Considered for the Day 5 prop-preview panel, not used — plain controlled inputs were simpler for "one input per `WidgetProperty`, no validation/submission." Still unwired for a future form-heavy feature. |
 | `zustand` | Global builder state |
 
 ---
@@ -440,8 +557,8 @@ Radix UI primitives installed but not yet wired — use raw HTML + Tailwind for 
 | v0.2 | ✅ | Razor parser + render hints + Supabase + Marketplace |
 | v0.3 | ✅ | Generator retargeted to real SDK pattern + MVC migration engine |
 | v0.4 | ✅ | Image resolution fix + four-pane MVC input + shared enum/`[Flags]` extraction (both parsers) + "Test in Demo" export |
-| v0.5 | 🔨 next | Monaco editor + widget history + resolve Test-in-Demo path + Renderer prop preview + inheritance in Renderer parser |
-| v0.6 | | Preview Studio (Sandpack iframe + prop editor forms) |
+| v0.5 | ✅ | Monaco editor + conversion history + ESLint config + `SelectedItemId`/`ItemType` content-reference collapsing + Renderer prop-preview panel + `widget-generator.ts` removal + tab-switch bug fix |
+| v0.6 | 🔨 next | FAQ Widget `List<FaqItem>` (custom list-item type) support (deferred from Day 5) + resolve Test-in-Demo path + inheritance in Renderer parser |
 | v0.7 | | Visual Builder (dnd-kit canvas) |
 | v0.8 | | AI-assisted conversion |
 | v1.0 | | Marketplace — publish, install, licensing |

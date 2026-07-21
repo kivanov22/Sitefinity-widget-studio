@@ -19,7 +19,8 @@ export type RenderHint =
   | "css-class"          // CSS class override prop
   | "url"                // href / src
   | "none"               // boolean flag, no direct render
-  | "choice";            // enum field — @Choice + @DataType(RadioChoice/ChipChoice)
+  | "choice"             // enum field — @Choice + @DataType(RadioChoice/ChipChoice)
+  | "content-reference"; // MVC SelectedItemId + DynamicContent pair — @Content({Type: '<dynamic type name>'})
 
 // ---------------------------------------------------------------------------
 // Nested object shape detected from Razor view
@@ -65,6 +66,16 @@ export interface WidgetProperty {
   enumValues?: string[];
   enumTypeName?: string;      // original C# enum type name, e.g. "ListMode"
   isFlags?: boolean;          // true → multi-select (ChipChoice), false → RadioChoice
+
+  // Set when renderHint === "content-reference" (MVC SelectedItemId + DynamicContent pair)
+  /**
+   * The dynamic module's fully-qualified .NET type name, e.g.
+   * "Telerik.Sitefinity.DynamicTypes.Model.Athletes.Athlete" — read from the
+   * controller's `ItemType` backing-field default. UNDEFINED means it couldn't be
+   * resolved from the pasted source — the generator then emits a TODO instead of
+   * baking in an empty @Content Type.
+   */
+  contentItemType?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -3,11 +3,14 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { type ConvertResult } from "@/types/widget";
+import { CodeEditor, type CodeEditorLanguage } from "./CodeEditor";
+import { PreviewPane } from "./PreviewPane";
 import {
   AlertTriangle,
   Check,
   Copy,
   Download,
+  Eye,
   FileCode2,
   Layers,
   Loader2,
@@ -19,7 +22,7 @@ interface Props {
   result: ConvertResult | null;
 }
 
-type Tab = "entity" | "component" | "registry" | "schema";
+type Tab = "entity" | "component" | "registry" | "schema" | "preview";
 
 interface ExportSuccess {
   success: true;
@@ -89,13 +92,30 @@ export function GeneratedOutput({ result }: Props) {
       label: "schema.json",
       icon: <FileCode2 className="w-3.5 h-3.5" />,
     },
+    {
+      id: "preview",
+      label: "Preview",
+      icon: <Eye className="w-3.5 h-3.5" />,
+    },
   ];
 
+  // "preview" has no code-editor content of its own — PreviewPane renders
+  // instead (see below) — these placeholders just satisfy the Record<Tab, ...>
+  // shape and are never read for that tab.
   const activeContent: Record<Tab, string> = {
     entity: generated.entityFile.content,
     component: generated.componentFile.content,
     registry: generated.registryEntrySnippet,
     schema: JSON.stringify(schema, null, 2),
+    preview: "",
+  };
+
+  const activeLanguage: Record<Tab, CodeEditorLanguage> = {
+    entity: "typescript",
+    component: "typescript",
+    registry: "typescript",
+    schema: "json",
+    preview: "typescript",
   };
 
   async function copyToClipboard() {
@@ -219,18 +239,41 @@ export function GeneratedOutput({ result }: Props) {
       </div>
 
       {/* Code */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 min-h-0 flex flex-col p-6 gap-3">
         {activeTab === "registry" && (
-          <p className="text-xs text-muted-foreground mb-3">
+          <p className="text-xs text-muted-foreground">
             Paste the imports at the top of your{" "}
             <code className="bg-muted px-1 rounded">widget-registry.ts</code>,
             then add the entry inside the{" "}
             <code className="bg-muted px-1 rounded">widgets: {"{}"}</code> object.
           </p>
         )}
-        <pre className="font-mono text-xs leading-relaxed text-foreground whitespace-pre">
-          {activeContent[activeTab]}
-        </pre>
+
+        {/* Preview stays mounted even when another tab is active — unlike the
+            CodeEditor panes below (which remount per tab via `key`), its prop
+            panel holds real user edits that switching tabs must not lose. */}
+        <div className={activeTab === "preview" ? "flex-1 min-h-0" : "hidden"}>
+          {/* Keyed on the generated source: a genuinely new conversion fully
+              remounts PreviewPane (fresh panel defaults, no stale-keys frame
+              from a mid-flight useEffect). Switching tabs doesn't change this
+              key, so PreviewPane's own state still survives that. */}
+          <PreviewPane
+            key={generated.componentFile.content}
+            schema={schema}
+            componentSource={generated.componentFile.content}
+          />
+        </div>
+
+        {activeTab !== "preview" && (
+          <div className="flex-1 min-h-0">
+            <CodeEditor
+              key={activeTab}
+              language={activeLanguage[activeTab]}
+              value={activeContent[activeTab]}
+              readOnly
+            />
+          </div>
+        )}
       </div>
 
       {/* Property summary */}

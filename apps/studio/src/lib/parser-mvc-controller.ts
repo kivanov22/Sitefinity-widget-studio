@@ -115,6 +115,7 @@ export function parseMvcController(
       mvcMetadata,
       interfaceSource,
       searchSource,
+      controllerSource,
     });
   }
 
@@ -132,5 +133,6 @@ export function parseMvcController(
     mvcMetadata,
     interfaceSource,
     searchSource,
+    controllerSource,
   });
 }
