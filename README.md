@@ -2,7 +2,7 @@
 
 > Convert Sitefinity .NET Core Renderer widgets to Next.js — parse, generate, preview, and publish.
 
-[![version](https://img.shields.io/badge/version-0.1.0-blue)](./CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.5.0-blue)](./CHANGELOG.md)
 [![license](https://img.shields.io/badge/license-MIT-green)](#)
 
 ---
@@ -100,6 +100,25 @@ sitefinity-widget-studio/
 | Convert UI (split-pane editor) | ✅ |
 | Hero Widget sample | ✅ |
 | Download generated files | ✅ |
+
+---
+
+## Day 5 (v0.5.0) — latest
+
+> Note: this section (and the "What's done" table above) is the only part of
+> this README tracking day-by-day progress; the rest of the file is still
+> the original v0.1 draft. See `CLAUDE.md` for the full, currently-maintained
+> day-by-day project history.
+
+- Monaco Editor across every input pane (ViewModel, Razor, all four MVC panes) and the read-only output panes
+- Conversion history in `localStorage` (last 20 conversions, reload input + output together)
+- ESLint flat config for `apps/studio` (`next lint` had no config file and fell into an interactive prompt)
+- MVC `SelectedItemId` + `ItemType` → single `content-reference` property collapsing (the real pattern splits the two properties across the Controller and Model classes)
+- Renderer prop-preview panel — live client-side render of the generated component with editable sample props (`@babel/standalone`, no bundler)
+- Removed the orphaned `widget-generator.ts` (superseded by the entity/component generators since v0.3)
+- Fixed: the output panel no longer keeps showing a stale conversion after switching input tabs
+
+**Deferred to Day 6:** FAQ Widget `List<FaqItem>` (custom list-item type) support — investigation not included in this release.
 
 ---
 

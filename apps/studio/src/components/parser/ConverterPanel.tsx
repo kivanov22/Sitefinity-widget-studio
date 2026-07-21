@@ -43,7 +43,7 @@ import {
 } from "lucide-react";
 
 interface Props {
-  onResult: (result: ConvertResult) => void;
+  onResult: (result: ConvertResult | null) => void;
 }
 
 /** The four MVC input panes. */
@@ -261,6 +261,7 @@ export function ConverterPanel({ onResult }: Props) {
     convertMutation.reset();
     setLastResult(null);
     setSavedOk(false);
+    onResult(null);
   }
 
   function handleTabChange(tab: SourceType) {

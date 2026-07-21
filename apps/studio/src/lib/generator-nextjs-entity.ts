@@ -22,8 +22,10 @@ function toKebabCase(str: string): string {
 }
 
 /** Strip trailing "Url" from an image property name since it's now a
- *  MixedContentContext content reference, not a URL string. */
-function imagePropertyName(name: string): string {
+ *  MixedContentContext content reference, not a URL string. Exported so
+ *  the preview pane can compute the same `props.model.Properties.X` key
+ *  the generated component actually reads, without re-deriving the rule. */
+export function imagePropertyName(name: string): string {
   return name.replace(/Url$/i, "");
 }
 
